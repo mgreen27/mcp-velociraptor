@@ -1,0 +1,6 @@
+# pycache
+/__pycache__/*
+
+
+# api cleint config locally
+api_client.yaml
