@@ -389,7 +389,7 @@ async def list_windows_artifacts() -> list[dict]:
     """
     Finds Availible Windows artifacts. 
 
-    Generally paramaters that target filenam reges are more performant in NTFS queries: MFT, USN and can also be used to target top level folders.
+    Generally paramaters that target filename regexs are more performant in NTFS queries: MFT, USN and can also be used to target top level folders.
     A Path glob is performant, and path regex is useful to specifically filter locations.
     """
     vql = """
