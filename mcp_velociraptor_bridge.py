@@ -104,7 +104,8 @@ async def windows_netstat_enriched(
 
     return realtime_collection(client_id,artifact,parameters,Fields,result_scope)
 
-
+##
+## Persistence 
 @mcp.tool()
 async def windows_scheduled_tasks(
     client_id: str,
@@ -126,6 +127,141 @@ async def windows_scheduled_tasks(
 
     return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
 
+
+@mcp.tool()
+async def windows_services(
+    client_id: str,
+    Fields: str = "UserAccount,Created,ServiceDll,FailureCommand,FailureActions,AbsoluteExePath,HashServiceExe,CertinfoServiceExe,HashServiceDll,CertinfoServiceDll"
+) -> str:
+    """
+    List services with metadata on a Windows host.
+
+    Args:
+        client_id: Velociraptor client ID.
+        Fields: Comma-separated list of fields to return.
+
+    Returns:
+        Service artifact results as a string or error message.
+    """
+    artifact = "Windows.System.Services"
+    result_scope = ""
+    parameters = ""  # No parameters for this artifact
+
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+
+
+##
+## User Activity 
+
+@mcp.tool()
+async def windows_recentdocs(
+    client_id: str,
+    Fields: str = "Username,LastWriteTime,Value,Key,MruEntries,HiveName"
+) -> str:
+    """
+    Collect RecentDocs from Registry on a Windows host.
+
+    Args:
+        client_id: Velociraptor client ID.
+        Fields: Comma-separated list of fields to return.
+
+    Returns:
+        RecentDocs artifact results as a string or error message.
+    """
+    artifact = "Windows.Registry.RecentDocs"
+    result_scope = ""
+    parameters = ""  # No parameters for this artifact
+
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+
+
+@mcp.tool()
+async def windows_shellbags(
+    client_id: str,
+    Fields: str = "ModTime,Name,_OSPath,Hive,KeyPath,Description,Path,_RawData,_Parsed"
+) -> str:
+    """
+     Collect Shellbags from Registry on a Windows host.
+
+    Args:
+        client_id: Velociraptor client ID.
+        Fields: Comma-separated list of fields to return.
+
+    Returns:
+        Shellbags artifact results as a string or error message.
+    """
+    artifact = "Windows.Forensics.Shellbags"
+    result_scope = ""
+    parameters = ""  # No parameters for this artifact
+
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+
+
+@mcp.tool()
+async def windows_mounted_mass_storage_usb(
+    client_id: str,
+    Fields: str = "KeyLastWriteTimestamp, KeyName, FriendlyName, HardwareID"
+) -> str:
+    """
+        Collect evidence of mounted mass storage from Registry on a Windows host.
+
+    Args:
+        client_id: Velociraptor client ID.
+        Fields: Comma-separated list of fields to return.
+
+    Returns:
+        Mounted mass storage artifact results as a string or error message.
+    """
+    artifact = "Windows.Mounted.Mass.Storage"
+    result_scope = ""
+    parameters = ""  # No parameters for this artifact
+
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+
+@mcp.tool()
+async def windows_evidence_of_download(
+    client_id: str,
+    Fields: str = "DownloadedFilePath,_ZoneIdentifierContent,FileHash,HostUrl,ReferrerUrl"
+) -> str:
+    """
+    Collect evidence of download from a Windows host.
+
+    Args:
+        client_id: Velociraptor client ID.
+        Fields: Comma-separated list of fields to return.
+
+    Returns:
+        Evidence of Download artifact results as a string or error message.
+    """
+    artifact = "Windows.Analysis.EvidenceOfDownload"
+    result_scope = ""
+    parameters = ""  # No parameters for this artifact
+
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+
+@mcp.tool()
+async def windows_mountpoints2(
+    client_id: str,
+    Fields: str = "ModifiedTime, MountPoint, Hive, Key"
+) -> str:
+    """
+    Collect evidence of download from a Windows host.
+
+    Args:
+        client_id: Velociraptor client ID.
+        Fields: Comma-separated list of fields to return.
+
+    Returns:
+        Evidence of Download artifact results as a string or error message.
+    """
+    artifact = "Windows.Registry.MountPoints2"
+    result_scope = ""
+    parameters = ""  # No parameters for this artifact
+
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+
+
+##
 ## Evidence of execution
 @mcp.tool()
 async def windows_execution_amcache(
@@ -418,3 +554,4 @@ async def list_windows_artifacts() -> list[dict]:
 
 if __name__ == "__main__":
     mcp.run()
+
