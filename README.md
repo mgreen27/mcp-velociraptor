@@ -1,5 +1,3 @@
-[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/mgreen27-mcp-velociraptor-badge.png)](https://mseep.ai/app/mgreen27-mcp-velociraptor)
-
 # Velociraptor MCP
 Velociraptor MCP is a POC Model Context Protocol bridge for exposing LLMs to MCP clients.
 
