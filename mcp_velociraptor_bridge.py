@@ -28,6 +28,149 @@ def client_info(hostname: str) -> dict:
     return find_client_info(hostname)
 
 @mcp.tool()
+async def linux_pslist(
+    client_id: str,
+    ProcessRegex: str = ".",
+    Fields: str = "*"
+) -> str:
+    """
+    List running processes on a Linux host.
+
+    Args:
+        client_id: The Velociraptor client ID.
+        ProcessRegex: Case-insensitive regex to filter process names.
+        Fields: Comma-separated string of fields to return.
+
+    Returns:
+        Process list as a string or error message.
+
+    """
+    artifact = "Linux.Sys.Pslist"
+    result_scope = ""
+    parameters = (
+        f"ProcessRegex='{ProcessRegex}'"
+    )
+
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+
+@mcp.tool()
+async def linux_groups(
+    client_id: str,
+    GroupFile: str = "/etc/group",
+    Fields: str = "*"
+) -> str:
+    """
+    List groups on a Linux host.
+    
+    Args:
+        client_id: The Velociraptor client ID.
+        GroupFile: The location of the group file
+        Fields: Comma-separated string of fields to return.
+
+    Returns:
+        The group names as a string or error message.
+
+    """
+    artifact = "Linux.Sys.Groups"
+    result_scope = ""
+    parameters = (
+        f"GroupFile='{GroupFile}'"
+    )
+
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+
+@mcp.tool()
+async def linux_mounts(
+    client_id: str,
+    Fields: str = "*"
+) -> str:
+    """
+    List mounts on a Linux host.
+    
+    Args:
+        client_id: The Velociraptor client ID.
+        Fields: Comma-separated string of fields to return.
+
+    Returns:
+        The mounted filesystems as a string or error message.
+
+    """
+    artifact = "Linux.Mounts"
+    result_scope = ""
+    parameters = ""  # No parameters for this artifact
+
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+
+@mcp.tool()
+async def linux_netstat_enriched(
+    client_id: str,
+    IPRegex: str = ".",
+    PortRegex: str = ".",
+    ProcessNameRegex: str = ".",
+    UsernameRegex: str = ".",
+    ConnectionStatusRegex: str= "LISTEN|ESTAB",
+    ProcessPathRegex: str = ".",
+    CommandLineRegex: str = ".",
+    CallChainRegex: str = ".",
+    Fields: str = "*"
+) -> str:
+    """
+    List network connections (netstat) with process metadata on a Linux host.
+    
+    Args:
+        client_id: The Velociraptor client ID.
+        IPRegex: Regex to filter remote/local IP addresses.
+        PortRegex: Regex to filter local/remote ports (e.g., '^443$').
+        ProcessNameRegex: Regex to filter process names.
+        UsernameRegex: Regex to filter user accounts associated with the process.
+        ConnectionStatusRegex: Regex to filter connection status.
+        ProcessPathRegex: Regex to filter full process paths.
+        CommandLineRegex: Regex to filter command-line arguments.
+        CallChainRegex: Regex to filter process callchain.
+        Fields: Comma-separated string of fields to return.
+
+    Returns:
+        Netstat results as a string or error message.
+
+    """
+    artifact = "Linux.Network.NetstatEnriched"
+    result_scope = ""
+    parameters = (
+    f"IPRegex='{IPRegex}',"
+    f"PortRegex='{PortRegex}',"
+    f"ProcessNameRegex='{ProcessNameRegex}',"
+    f"UsernameRegex='{UsernameRegex}',"
+    f"ConnectionStatusRegex='{ConnectionStatusRegex}',"
+    f"ProcessPathRegex='{ProcessPathRegex}',"
+    f"CommandLineRegex='{CommandLineRegex}',"
+    f"CallChainRegex='{CallChainRegex}'"
+)
+
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+
+@mcp.tool()
+async def linux_users(
+    client_id: str,
+    Fields: str = "*"
+) -> str:
+    """
+    List users on a Linux host.
+    
+    Args:
+        client_id: The Velociraptor client ID.
+        Fields: Comma-separated string of fields to return.
+
+    Returns:
+        The user results as a string or error message.
+
+    """
+    artifact = "Linux.Sys.Users"
+    result_scope = ""
+    parameters = ""  # No parameters for this artifact
+
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+
+@mcp.tool()
 async def windows_pslist(
     client_id: str,
     ProcessRegex: str = ".",
