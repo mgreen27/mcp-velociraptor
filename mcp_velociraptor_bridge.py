@@ -694,6 +694,34 @@ async def list_windows_artifacts() -> list[dict]:
     except Exception as e:
         return [{"error": f"Failed to summarize artifact definitions: {str(e)}"}]
 
+async def list_linux_artifacts() -> list[dict]:
+    """
+    Finds Availible Linux artifacts. 
+
+    """
+    vql = """
+    LET params(data) = SELECT name FROM data
+    SELECT name, description, params(data=parameters) AS parameters
+    FROM artifact_definitions()
+    WHERE type =~ 'client' AND name =~ 'linux\\.'
+    """
+
+    def shorten(desc: str) -> str:
+        return desc.strip().split(".")[0][:120].rstrip() + "..." if desc else ""
+
+    try:
+        results = run_vql_query(vql)
+        summaries = []
+        for r in results:
+            summaries.append({
+                "name": r["name"],
+                "short_description": shorten(r.get("description", "")),
+                "parameters": [p["name"] for p in r.get("parameters", [])]
+            })
+        return summaries
+    except Exception as e:
+        return [{"error": f"Failed to summarize artifact definitions: {str(e)}"}]
+
 
 if __name__ == "__main__":
     mcp.run()
