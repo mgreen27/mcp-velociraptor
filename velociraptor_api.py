@@ -65,7 +65,7 @@ def realtime_collection(client_id: str, artifact: str, parameters: str = "", fie
     except Exception as e:
         return f"Error starting collection: {e}"
 
-    return results
+    return str(results)
 
 def start_collection(client_id: str, artifact: str, parameters: str = "" ) -> str:
     vql = (
