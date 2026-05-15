@@ -1,6 +1,13 @@
 # pycache
 /__pycache__/*
+agent_poc/__pycache__/*
+agent_poc/__init__.py
 
+# local virtualenv
+.venv/
 
 # api cleint config locally
 api_client.yaml
+
+# local agent outputs
+agent_poc/output/*
