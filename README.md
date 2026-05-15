@@ -20,12 +20,13 @@ Generate an api config file:
 
 `velociraptor --config /etc/velociraptor/server.config.yaml config api_client --name api --role administrator,api api_client.yaml`
 
-### 2. Clone mcp-velociraptor repo and test API 
+### 2. Clone mcp-velociraptor repo and test API
 
-- copy api_client.yaml to preferred config location and ensure configuration correct (pointing to appropriate IP address).
-- modify test_api.py to appropriate location.
-- Run test_api.py to confirm working
-- Modify mcp_velociraptor_bridge.py to correct API config
+- Copy `api_client.yaml` to the repo root, or keep it anywhere local and set `VELOCIRAPTOR_API_CONFIG=/path/to/api_client.yaml`.
+- `api_client.yaml` is gitignored and should not be committed.
+- Run `VELOCIRAPTOR_API_CONFIG=/path/to/api_client.yaml .venv/bin/python test_api.py` to confirm the API works.
+- The MCP bridge reads the same `VELOCIRAPTOR_API_CONFIG` environment variable.
+- For multi-tenant deployments, optionally set `VELOCIRAPTOR_ORG_ID` to choose a default org context.
 
 ### 3. Connect to Claude desktop or MCP client of choice
 
@@ -34,6 +35,10 @@ The easiest configuration is to run your venv python directly calling mcp_veloci
   "mcpServers": {
     "velociraptor": {
       "command": "/path/to/venv/bin/python",
+      "env": {
+        "VELOCIRAPTOR_API_CONFIG": "/path/to/api_client.yaml",
+        "VELOCIRAPTOR_ORG_ID": "O123"
+      },
       "args": [
         "/path/to/mcp_velociraptor_bridge.py"
       ]
@@ -41,6 +46,9 @@ The easiest configuration is to run your venv python directly calling mcp_veloci
   }
 }
 ```
+
+The separate agent proof-of-concept now lives under `agent_poc/`. See
+`agent_poc/README.md` for agent-specific usage and automation examples.
 
 ![image](https://github.com/user-attachments/assets/3e810f03-ca74-4757-b5dc-89d4e8f8aef6)
 
@@ -62,4 +70,3 @@ Please let me know how you go and feel free to add PR!
 
 `can you tell me which artifacts target the USN journal`
 <img alt="image" src="https://github.com/user-attachments/assets/b9f93b1c-4a08-437d-b25a-ff82bdd2ab8c" />
-

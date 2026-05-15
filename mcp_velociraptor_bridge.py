@@ -1,35 +1,53 @@
 from mcp.server.fastmcp import FastMCP
 
-import yaml, grpc, json
-from pyvelociraptor import api_pb2, api_pb2_grpc
-from velociraptor_api import *
+import os
 import asyncio
+from velociraptor_api import *
 
 
 mcp = FastMCP("velociraptor-mcp")
 
-# add api config path - wrong config and MCP connection will fail
-api_client_config = "/path/to/api_client.yaml"
-init_stub(api_client_config)
+# Resolve the API client config from VELOCIRAPTOR_API_CONFIG, ./api_client.yaml,
+# or ~/.config/api_client.yaml.
+init_stub(os.environ.get("VELOCIRAPTOR_API_CONFIG"))
+api_list_orgs = list_orgs
 
-    
 @mcp.tool()
-def client_info(hostname: str) -> dict:
+def list_orgs() -> list[dict]:
+    """
+    List available Velociraptor orgs for multi-tenant deployments.
+
+    Returns:
+        A list of org metadata including OrgId and Name.
+    """
+    return api_list_orgs()
+
+
+@mcp.tool()
+def client_info(
+    hostname: str,
+    org_id: str = "",
+    search_all_orgs: bool = False,
+) -> dict:
     """
     Retrieve client information from the Velociraptor server.
 
     Args:
         hostname: Hostname or FQDN of the target endpoint.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
+        search_all_orgs: Search across orgs when no org_id is supplied.
 
     Returns:
         A dictionary containing client metadata, including the client_id,
-        which can be used to target other artifact collections.
+        which can be used to target other artifact collections. When
+        search_all_orgs is true, the response may also include OrgId/OrgName.
     """
-    return find_client_info(hostname)
+    return find_client_info(hostname, org_id=org_id, search_all_orgs=search_all_orgs)
 
 @mcp.tool()
 async def linux_pslist(
     client_id: str,
+    org_id: str = "",
     ProcessRegex: str = ".",
     Fields: str = "*"
 ) -> str:
@@ -38,6 +56,7 @@ async def linux_pslist(
 
     Args:
         client_id: The Velociraptor client ID.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
         ProcessRegex: Case-insensitive regex to filter process names.
         Fields: Comma-separated string of fields to return.
 
@@ -51,11 +70,12 @@ async def linux_pslist(
         f"ProcessRegex='{ProcessRegex}'"
     )
 
-    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope, org_id)
 
 @mcp.tool()
 async def linux_groups(
     client_id: str,
+    org_id: str = "",
     GroupFile: str = "/etc/group",
     Fields: str = "*"
 ) -> str:
@@ -64,6 +84,7 @@ async def linux_groups(
     
     Args:
         client_id: The Velociraptor client ID.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
         GroupFile: The location of the group file
         Fields: Comma-separated string of fields to return.
 
@@ -77,11 +98,12 @@ async def linux_groups(
         f"GroupFile='{GroupFile}'"
     )
 
-    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope, org_id)
 
 @mcp.tool()
 async def linux_mounts(
     client_id: str,
+    org_id: str = "",
     Fields: str = "*"
 ) -> str:
     """
@@ -89,6 +111,7 @@ async def linux_mounts(
     
     Args:
         client_id: The Velociraptor client ID.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
         Fields: Comma-separated string of fields to return.
 
     Returns:
@@ -99,11 +122,12 @@ async def linux_mounts(
     result_scope = ""
     parameters = ""  # No parameters for this artifact
 
-    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope, org_id)
 
 @mcp.tool()
 async def linux_netstat_enriched(
     client_id: str,
+    org_id: str = "",
     IPRegex: str = ".",
     PortRegex: str = ".",
     ProcessNameRegex: str = ".",
@@ -119,6 +143,7 @@ async def linux_netstat_enriched(
     
     Args:
         client_id: The Velociraptor client ID.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
         IPRegex: Regex to filter remote/local IP addresses.
         PortRegex: Regex to filter local/remote ports (e.g., '^443$').
         ProcessNameRegex: Regex to filter process names.
@@ -146,11 +171,12 @@ async def linux_netstat_enriched(
     f"CallChainRegex='{CallChainRegex}'"
 )
 
-    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope, org_id)
 
 @mcp.tool()
 async def linux_users(
     client_id: str,
+    org_id: str = "",
     Fields: str = "*"
 ) -> str:
     """
@@ -158,6 +184,7 @@ async def linux_users(
     
     Args:
         client_id: The Velociraptor client ID.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
         Fields: Comma-separated string of fields to return.
 
     Returns:
@@ -168,11 +195,12 @@ async def linux_users(
     result_scope = ""
     parameters = ""  # No parameters for this artifact
 
-    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope, org_id)
 
 @mcp.tool()
 async def windows_pslist(
     client_id: str,
+    org_id: str = "",
     ProcessRegex: str = ".",
     PidRegex: str = ".",
     ExePathRegex: str = ".",
@@ -185,6 +213,7 @@ async def windows_pslist(
 
     Args:
         client_id: Velociraptor client ID.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
         ProcessRegex: Case-insensitive regex to filter process names.
         PidRegex: Regex to filter process IDs.
         ExePathRegex: Regex to filter executable path on disk.
@@ -205,11 +234,12 @@ async def windows_pslist(
         f"UsernameRegex='{UsernameRegex}'"
     )
 
-    return realtime_collection(client_id,artifact,parameters,Fields,result_scope)
+    return realtime_collection(client_id,artifact,parameters,Fields,result_scope,org_id)
 
 @mcp.tool()
 async def windows_netstat_enriched(
     client_id: str,
+    org_id: str = "",
     IPRegex: str = ".",
     PortRegex: str = ".",
     ProcessNameRegex: str = ".",
@@ -223,6 +253,7 @@ async def windows_netstat_enriched(
 
     Args:
         client_id: Velociraptor client ID.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
         IPRegex: Regex to filter remote/local IP addresses.
         PortRegex: Regex to filter local/remote ports (e.g., '^443$').
         ProcessNameRegex: Regex to filter process names.
@@ -245,13 +276,14 @@ async def windows_netstat_enriched(
         f"UsernameRegex='{UsernameRegex}'"
     )
 
-    return realtime_collection(client_id,artifact,parameters,Fields,result_scope)
+    return realtime_collection(client_id,artifact,parameters,Fields,result_scope,org_id)
 
 ##
 ## Persistence 
 @mcp.tool()
 async def windows_scheduled_tasks(
     client_id: str,
+    org_id: str = "",
     Fields: str = "OSPath,Mtime,Command,ExpandedCommand,Arguments,ComHandler,UserId,StartBoundary,Authenticode"
 ) -> str:
     """
@@ -259,6 +291,7 @@ async def windows_scheduled_tasks(
 
     Args:
         client_id: Velociraptor client ID.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
         Fields: Comma-separated list of fields to return.
 
     Returns:
@@ -268,12 +301,13 @@ async def windows_scheduled_tasks(
     result_scope = "/Analysis"
     parameters = ""  # No parameters for this artifact
 
-    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope, org_id)
 
 
 @mcp.tool()
 async def windows_services(
     client_id: str,
+    org_id: str = "",
     Fields: str = "UserAccount,Created,ServiceDll,FailureCommand,FailureActions,AbsoluteExePath,HashServiceExe,CertinfoServiceExe,HashServiceDll,CertinfoServiceDll"
 ) -> str:
     """
@@ -281,6 +315,7 @@ async def windows_services(
 
     Args:
         client_id: Velociraptor client ID.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
         Fields: Comma-separated list of fields to return.
 
     Returns:
@@ -290,7 +325,7 @@ async def windows_services(
     result_scope = ""
     parameters = ""  # No parameters for this artifact
 
-    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope, org_id)
 
 
 ##
@@ -299,6 +334,7 @@ async def windows_services(
 @mcp.tool()
 async def windows_recentdocs(
     client_id: str,
+    org_id: str = "",
     Fields: str = "Username,LastWriteTime,Value,Key,MruEntries,HiveName"
 ) -> str:
     """
@@ -306,6 +342,7 @@ async def windows_recentdocs(
 
     Args:
         client_id: Velociraptor client ID.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
         Fields: Comma-separated list of fields to return.
 
     Returns:
@@ -315,12 +352,13 @@ async def windows_recentdocs(
     result_scope = ""
     parameters = ""  # No parameters for this artifact
 
-    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope, org_id)
 
 
 @mcp.tool()
 async def windows_shellbags(
     client_id: str,
+    org_id: str = "",
     Fields: str = "ModTime,Name,_OSPath,Hive,KeyPath,Description,Path,_RawData,_Parsed"
 ) -> str:
     """
@@ -328,6 +366,7 @@ async def windows_shellbags(
 
     Args:
         client_id: Velociraptor client ID.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
         Fields: Comma-separated list of fields to return.
 
     Returns:
@@ -337,12 +376,13 @@ async def windows_shellbags(
     result_scope = ""
     parameters = ""  # No parameters for this artifact
 
-    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope, org_id)
 
 
 @mcp.tool()
 async def windows_mounted_mass_storage_usb(
     client_id: str,
+    org_id: str = "",
     Fields: str = "KeyLastWriteTimestamp, KeyName, FriendlyName, HardwareID"
 ) -> str:
     """
@@ -350,6 +390,7 @@ async def windows_mounted_mass_storage_usb(
 
     Args:
         client_id: Velociraptor client ID.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
         Fields: Comma-separated list of fields to return.
 
     Returns:
@@ -359,11 +400,12 @@ async def windows_mounted_mass_storage_usb(
     result_scope = ""
     parameters = ""  # No parameters for this artifact
 
-    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope, org_id)
 
 @mcp.tool()
 async def windows_evidence_of_download(
     client_id: str,
+    org_id: str = "",
     Fields: str = "DownloadedFilePath,_ZoneIdentifierContent,FileHash,HostUrl,ReferrerUrl"
 ) -> str:
     """
@@ -371,6 +413,7 @@ async def windows_evidence_of_download(
 
     Args:
         client_id: Velociraptor client ID.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
         Fields: Comma-separated list of fields to return.
 
     Returns:
@@ -380,11 +423,12 @@ async def windows_evidence_of_download(
     result_scope = ""
     parameters = ""  # No parameters for this artifact
 
-    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope, org_id)
 
 @mcp.tool()
 async def windows_mountpoints2(
     client_id: str,
+    org_id: str = "",
     Fields: str = "ModifiedTime, MountPoint, Hive, Key"
 ) -> str:
     """
@@ -392,6 +436,7 @@ async def windows_mountpoints2(
 
     Args:
         client_id: Velociraptor client ID.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
         Fields: Comma-separated list of fields to return.
 
     Returns:
@@ -401,7 +446,7 @@ async def windows_mountpoints2(
     result_scope = ""
     parameters = ""  # No parameters for this artifact
 
-    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope, org_id)
 
 
 ##
@@ -409,6 +454,7 @@ async def windows_mountpoints2(
 @mcp.tool()
 async def windows_execution_amcache(
     client_id: str,
+    org_id: str = "",
     Fields: str = "FullPath,SHA1,ProgramID,FileDescription,FileVersion,Publisher,CompileTime,LastModified,LastRunTime"
 ) -> str:
     """
@@ -416,6 +462,7 @@ async def windows_execution_amcache(
 
     Args:
         client_id: Velociraptor client ID.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
         Fields: Comma-separated list of fields to return.
 
     Returns:
@@ -425,12 +472,13 @@ async def windows_execution_amcache(
     result_scope = ""
     parameters = ""  # No parameters for this artifact
 
-    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope, org_id)
 
 
 @mcp.tool()
 async def windows_execution_bam(
     client_id: str,
+    org_id: str = "",
     Fields: str = "*"
 ) -> str:
     """
@@ -438,6 +486,7 @@ async def windows_execution_bam(
 
     Args:
         client_id: Velociraptor client ID.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
         Fields: Comma-separated list of fields to return.
 
     Returns:
@@ -447,11 +496,12 @@ async def windows_execution_bam(
     result_scope = ""
     parameters = ""  # No parameters for this artifact
 
-    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope, org_id)
 
 @mcp.tool()
 async def windows_execution_activitiesCache(
     client_id: str,
+    org_id: str = "",
     Fields: str = "*"
 ) -> str:
     """
@@ -459,6 +509,7 @@ async def windows_execution_activitiesCache(
 
     Args:
         client_id: Velociraptor client ID.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
         Fields: Comma-separated list of fields to return.
 
     Returns:
@@ -468,11 +519,12 @@ async def windows_execution_activitiesCache(
     result_scope = ""
     parameters = ""  # No parameters for this artifact
 
-    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope, org_id)
 
 @mcp.tool()
 async def windows_execution_userassist(
     client_id: str,
+    org_id: str = "",
     Fields: str = "Name,User,LastExecution,NumberOfExecutions"
 ) -> str:
     """
@@ -480,6 +532,7 @@ async def windows_execution_userassist(
 
     Args:
         client_id: Velociraptor client ID.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
         Fields: Comma-separated list of fields to return.
 
     Returns:
@@ -489,11 +542,12 @@ async def windows_execution_userassist(
     result_scope = ""
     parameters = ""  # No parameters for this artifact
 
-    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope, org_id)
 
 @mcp.tool()
 async def windows_execution_shimcache(
     client_id: str,
+    org_id: str = "",
     Fields: str = "Position,ModificationTime,Path,ExecutionFlag,ControlSet"
 ) -> str:
     """
@@ -504,6 +558,7 @@ async def windows_execution_shimcache(
 
     Args:
         client_id: Velociraptor client ID.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
         Fields: Comma-separated list of fields to return.
 
     Returns:
@@ -513,12 +568,13 @@ async def windows_execution_shimcache(
     result_scope = ""
     parameters = ""  # No parameters for this artifact
 
-    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope, org_id)
 
 
 @mcp.tool()
 async def windows_execution_prefetch(
     client_id: str,
+    org_id: str = "",
     Fields: str = "Binary,CreationTime,LastRunTimes,RunCount,Hash" 
     #"Executable,LastRunTimes,RunCount,PrefetchFileName,Version,Hash,CreationTime,ModificationTime,Binary"
 ) -> str:
@@ -527,6 +583,7 @@ async def windows_execution_prefetch(
 
     Args:
         client_id: Velociraptor client ID.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
         Fields: Comma-separated list of fields to return.
 
     Returns:
@@ -536,12 +593,13 @@ async def windows_execution_prefetch(
     result_scope = ""
     parameters = ""  # No parameters for this artifact
 
-    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope, org_id)
 
 
 @mcp.tool()
 async def windows_ntfs_mft(
     client_id: str,
+    org_id: str = "",
     MFTDrive: str = "C:",
     PathRegex: str = ".",
     FileRegex: str = "^velociraptor\\.exe$",
@@ -553,6 +611,7 @@ async def windows_ntfs_mft(
     Search MFT for filename or path on a Windows machine. This is a forensic collection and may return many rows. If failure retry with collect_artifact().
     Args:
         client_id: The Velociraptor client ID.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
         MFTDrive: Target drive letter (default is C:).
         FileRegex: Regex to match filenames or folders.
         PathRegex: Regex to match file paths (more costly).
@@ -574,13 +633,14 @@ async def windows_ntfs_mft(
         f"DateBefore='{DateBefore}'"
     )
 
-    return realtime_collection(client_id, artifact, parameters, Fields, result_scope)
+    return realtime_collection(client_id, artifact, parameters, Fields, result_scope, org_id)
 
 @mcp.tool()
 async def get_collection_results(
     client_id: str,
     flow_id: str,
     artifact: str,
+    org_id: str = "",
     fields: str = "*",
     max_retries: int = 10,
     retry_delay: int = 30
@@ -593,6 +653,7 @@ async def get_collection_results(
         client_id: The Velociraptor client ID.
         flow_id: The flow ID returned from the initial collection.
         artifact: The name of the artifact collected (e.g., Windows.NTFS.MFT).
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
         fields: Comma-separated string of fields to return (default is "*").
         max_retries: Number of times to retry if the flow hasn't finished or no results yet.
         retry_delay: Time (in seconds) to wait between retries.
@@ -601,12 +662,12 @@ async def get_collection_results(
         Collection results as a string or an error message.
     """
     for attempt in range(max_retries):
-        status = get_flow_status(client_id, flow_id, artifact)
+        status = get_flow_status(client_id, flow_id, artifact, org_id=org_id)
         if status != "FINISHED":
             await asyncio.sleep(retry_delay)
             continue
 
-        result = get_flow_results(client_id, flow_id, artifact, fields)
+        result = get_flow_results(client_id, flow_id, artifact, fields, org_id=org_id)
         return result
 
     return "No results found after multiple retries or the flow did not finish."
@@ -616,6 +677,7 @@ async def get_collection_results(
 async def collect_artifact(
     client_id: str,
     artifact: str,
+    org_id: str = "",
     parameters: str = ""
 ) -> str:
     """
@@ -624,6 +686,7 @@ async def collect_artifact(
     Args:
         client_id: Velociraptor client ID to target.
         artifact: Name of the Velociraptor artifact to collect.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
         parameters: A comma-separated string of key='value' pairs to pass to the artifact.
         fields: Comma-separated fields to return.
         check_interval: Number of seconds to wait before checking for results again.
@@ -634,7 +697,7 @@ async def collect_artifact(
     """
 
     # Start the collection
-    response = start_collection(client_id, artifact, parameters)
+    response = start_collection(client_id, artifact, parameters, org_id=org_id)
 
     # Ensure the response contains the flow ID
     if not isinstance(response, list) or not response or "flow_id" not in response[0]:
@@ -646,6 +709,7 @@ async def collect_artifact(
 @mcp.tool()
 async def collect_forensic_triage(
     client_id: str,
+    org_id: str = "",
     Fields: str = "*"
 ) -> str:
     """
@@ -653,6 +717,7 @@ async def collect_forensic_triage(
 
     Args:
         client_id: Velociraptor client ID.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
         Fields: Comma-separated list of fields to return (default is '*').
 
     Returns:
@@ -661,10 +726,10 @@ async def collect_forensic_triage(
     artifact = "Windows.KapeFiles.Targets"
     parameters = "_BasicCollection='Y'"
 
-    return start_collection(client_id, artifact, parameters, Fields)
+    return start_collection(client_id, artifact, parameters, org_id=org_id)
 
 @mcp.tool()
-async def list_windows_artifacts() -> list[dict]:
+async def list_windows_artifacts(org_id: str = "") -> list[dict]:
     """
     Finds Availible Windows artifacts. 
 
@@ -682,7 +747,7 @@ async def list_windows_artifacts() -> list[dict]:
         return desc.strip().split(".")[0][:120].rstrip() + "..." if desc else ""
 
     try:
-        results = run_vql_query(vql)
+        results = run_vql_query(vql, org_id=org_id)
         summaries = []
         for r in results:
             summaries.append({
@@ -694,7 +759,8 @@ async def list_windows_artifacts() -> list[dict]:
     except Exception as e:
         return [{"error": f"Failed to summarize artifact definitions: {str(e)}"}]
 
-async def list_linux_artifacts() -> list[dict]:
+@mcp.tool()
+async def list_linux_artifacts(org_id: str = "") -> list[dict]:
     """
     Finds Availible Linux artifacts. 
 
@@ -710,7 +776,7 @@ async def list_linux_artifacts() -> list[dict]:
         return desc.strip().split(".")[0][:120].rstrip() + "..." if desc else ""
 
     try:
-        results = run_vql_query(vql)
+        results = run_vql_query(vql, org_id=org_id)
         summaries = []
         for r in results:
             summaries.append({
@@ -725,4 +791,3 @@ async def list_linux_artifacts() -> list[dict]:
 
 if __name__ == "__main__":
     mcp.run()
-

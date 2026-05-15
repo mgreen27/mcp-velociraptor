@@ -24,10 +24,13 @@ Expecting to print out server info() if API working as expected
 }
 '''
 
+import os
 import yaml, grpc, json
 from pyvelociraptor import api_pb2, api_pb2_grpc
+from velociraptor_api import resolve_config_path
 
-config = yaml.safe_load(open("api_client.yaml"))
+config_path = resolve_config_path(os.environ.get("VELOCIRAPTOR_API_CONFIG"))
+config = yaml.safe_load(config_path.read_text())
 
 # Prepare gRPC channel credentials
 creds = grpc.ssl_channel_credentials(
@@ -48,4 +51,3 @@ for response in stub.Query(request):
         rows = json.loads(response.Response)
         for line in rows:
             print(json.dumps(line, indent=4))
-

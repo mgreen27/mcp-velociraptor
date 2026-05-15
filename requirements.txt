@@ -1,3 +1,21 @@
+# Core application dependencies
+pyvelociraptor
+pyyaml
+grpcio
+grpcio-tools
+cryptography
+
+# MCP (Model Context Protocol) dependencies
 mcp
-pyvelociraptor 
-asyncio
+anyio
+httpx
+httpx-sse
+jsonschema
+pydantic
+pydantic-settings
+pyjwt
+python-multipart
+sse-starlette
+starlette
+uvicorn
+ollama
