@@ -40,6 +40,10 @@ Choose a readable text view instead of JSON with:
 
 ### Integration Examples
 
+These examples wrap the current host-focused `analyze_endpoint()` workflow.
+They are suitable for calling the agent on one endpoint at a time from another
+service or scheduler.
+
 #### 1. API Endpoint (FastAPI)
 ```python
 from fastapi import FastAPI
@@ -94,42 +98,6 @@ agent_poc/output/
   └── ...
 ```
 
-## Advanced Agent Patterns
-
-### 1. Multi-Stage Investigation
-```python
-async def investigate_ioc(agent, ioc_hash):
-    # Stage 1: Find endpoints with the hash
-    endpoints = await agent.client.chat(
-        f"Search MFT across all clients for file hash {ioc_hash}"
-    )
-    
-    # Stage 2: Deep dive on affected endpoints
-    for endpoint in parse_endpoints(endpoints):
-        await agent.analyze_endpoint(endpoint, "full")
-```
-
-### 2. Behavioral Analysis
-```python
-async def detect_lateral_movement(agent, timeframe):
-    # Look for patterns across multiple endpoints
-    await agent.client.chat(
-        f"Find all psexec executions in the last {timeframe} hours across all clients"
-    )
-    # Correlate with network connections, user activity, etc.
-```
-
-### 3. Threat Hunting Loop
-```python
-async def hunt_loop(agent, hypothesis, hosts):
-    for host in hosts:
-        results = await agent.analyze_endpoint(host, "execution")
-        if contains_ioc(results):
-            # Expand scope
-            related_hosts = find_related_hosts(host)
-            hosts.extend(related_hosts)
-```
-
 ## Configuration
 
 Edit `agent_poc/mcp_agent.py` to customize:
@@ -137,6 +105,11 @@ Edit `agent_poc/mcp_agent.py` to customize:
 - Output directory
 - Workflow definitions
 - Custom analysis logic
+
+This POC agent is designed for per-host analysis. Cross-endpoint hunting,
+global IOC correlation, and autonomous scope expansion are not first-class
+features in the current implementation and should not be assumed from these
+examples.
 
 The bridge and smoke script both read `VELOCIRAPTOR_API_CONFIG`. Keep that file
 local and out of version control.
