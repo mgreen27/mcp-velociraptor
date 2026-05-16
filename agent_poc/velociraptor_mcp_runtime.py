@@ -47,6 +47,10 @@ class VelociraptorMCPClient:
         """Disconnect from the MCP server."""
         await self.exit_stack.aclose()
 
+    def reset_conversation(self):
+        """Clear prior chat state so each analysis can start with fresh context."""
+        self.conversation_history = []
+
     def get_tool_definitions(self) -> list[dict]:
         """Convert MCP tools to Ollama function calling format."""
         tool_defs = []
@@ -73,15 +77,37 @@ class VelociraptorMCPClient:
             tool_defs.append(tool_def)
         return tool_defs
 
+    @staticmethod
+    def _decode_tool_output(raw_text: str) -> str:
+        """Unwrap the bridge's JSON envelope for agent consumers."""
+        try:
+            payload = json.loads(raw_text)
+        except json.JSONDecodeError:
+            return raw_text
+
+        if not isinstance(payload, dict) or "ok" not in payload:
+            return raw_text
+
+        if not payload.get("ok", False):
+            return f"Error calling tool: {payload.get('error', 'Unknown error')}"
+
+        data = payload.get("data")
+        if isinstance(data, (dict, list)):
+            return json.dumps(data)
+        if data is None:
+            return "null"
+        return str(data)
+
     async def call_tool(self, tool_name: str, arguments: dict) -> str:
         """Execute a tool via MCP."""
         try:
             result = await self.session.call_tool(tool_name, arguments)
             if result.content:
-                return "\n".join(
+                raw_text = "\n".join(
                     item.text if hasattr(item, "text") else str(item)
                     for item in result.content
                 )
+                return self._decode_tool_output(raw_text)
             return str(result)
         except Exception as e:
             return f"Error calling tool {tool_name}: {str(e)}"

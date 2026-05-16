@@ -31,7 +31,8 @@ Generate an api config file:
 ### 3. Connect to Claude desktop or MCP client of choice
 
 The easiest configuration is to run your venv python directly calling mcp_velociraptor_bridge.
-```{
+```json
+{
   "mcpServers": {
     "velociraptor": {
       "command": "/path/to/venv/bin/python",
@@ -50,10 +51,34 @@ The easiest configuration is to run your venv python directly calling mcp_veloci
 The separate agent proof-of-concept now lives under `agent_poc/`. See
 `agent_poc/README.md` for agent-specific usage and automation examples.
 
+### 4. Tool Response Format
+
+MCP tool responses are emitted as JSON text envelopes so stdio clients do not
+need to parse Python `repr()` output:
+
+```json
+{"ok": true, "data": {...}}
+```
+
+or
+
+```json
+{"ok": false, "error": "message"}
+```
+
+`collect_artifact` accepts `parameters` as a structured JSON object with scalar
+values or lists of scalar values, for example
+`{"PathRegex": ".*", "Targets": ["_BasicCollection"]}`. Legacy compatibility
+input can be supplied via `legacy_parameters` with simple scalar assignments or
+list literals such as `PathRegex='.*',Targets=['_BasicCollection']`; raw VQL
+fragments are no longer passed through.
+`collect_forensic_triage` wraps `Windows.Triage.Targets` with
+`Targets='["_BasicCollection"]'` and a collection timeout of `2400` seconds.
+
 ![image](https://github.com/user-attachments/assets/3e810f03-ca74-4757-b5dc-89d4e8f8aef6)
 
 
-### 3. Caveats
+### 5. Caveats
 
 Due to the nature of DFIR, results depend on amount of data returned, model use and context window.
 

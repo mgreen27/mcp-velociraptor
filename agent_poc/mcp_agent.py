@@ -52,6 +52,7 @@ class VelociraptorAgent:
             Dictionary containing analysis results
         """
         print(f"\n🔍 Starting {analysis_type} analysis for: {hostname}")
+        self.client.reset_conversation()
         
         analysis_workflows = {
             "triage": self._triage_workflow,
@@ -94,11 +95,22 @@ class VelociraptorAgent:
 
     @staticmethod
     def _target_phrase(client_info: Dict) -> str:
+        os_type = (client_info.get("OSType") or "unknown").lower()
         client_id = client_info["client_id"]
         org_id = client_info.get("OrgId")
+        prefix = f"{os_type} " if os_type != "unknown" else ""
         if org_id:
-            return f"client {client_id} in org {org_id}"
-        return f"client {client_id}"
+            return f"{prefix}client {client_id} in org {org_id}"
+        return f"{prefix}client {client_id}"
+
+    @staticmethod
+    def _platform_guidance(client_info: Dict) -> str:
+        os_type = (client_info.get("OSType") or "").lower()
+        if os_type == "windows":
+            return "This endpoint is Windows. Use Windows-specific Velociraptor tools only."
+        if os_type == "linux":
+            return "This endpoint is Linux. Use Linux-specific Velociraptor tools only."
+        return "Choose tools based on the resolved endpoint metadata."
     
     async def _triage_workflow(self, hostname: str) -> Dict:
         """Quick triage: client info + running processes + network connections"""
@@ -116,9 +128,11 @@ class VelociraptorAgent:
             results["org_id"] = client_info["OrgId"]
 
         target = self._target_phrase(client_info)
+        platform_guidance = self._platform_guidance(client_info)
 
         response = await self.client.chat(
             f"Analyze running processes on {target}. "
+            f"{platform_guidance} "
             "Focus on unusual or suspicious processes, unsigned binaries, elevated "
             "tokens, odd parent-child relationships, temp-directory execution, and "
             "suspicious command lines."
@@ -127,6 +141,7 @@ class VelociraptorAgent:
 
         response = await self.client.chat(
             f"Analyze network connections on {target}. "
+            f"{platform_guidance} "
             "Highlight unusual external connections, suspicious ports, and processes "
             "with risky network activity."
         )
@@ -148,9 +163,11 @@ class VelociraptorAgent:
         if client_info.get("OrgId"):
             results["org_id"] = client_info["OrgId"]
         target = self._target_phrase(client_info)
+        platform_guidance = self._platform_guidance(client_info)
 
         response = await self.client.chat(
             f"Analyze all running processes on {target}. "
+            f"{platform_guidance} "
             "Look for unsigned binaries, elevated processes, unusual parent-child "
             "relationships, processes running from temp directories, suspicious "
             "command lines, and names masquerading as legitimate Windows processes."
@@ -173,9 +190,11 @@ class VelociraptorAgent:
         if client_info.get("OrgId"):
             results["org_id"] = client_info["OrgId"]
         target = self._target_phrase(client_info)
+        platform_guidance = self._platform_guidance(client_info)
 
         response = await self.client.chat(
             f"Analyze network connections on {target}. "
+            f"{platform_guidance} "
             "Focus on external IPs, unusual ports, unsigned processes with network "
             "activity, unexpected listening sockets, and established connections to "
             "suspicious destinations."
@@ -198,9 +217,11 @@ class VelociraptorAgent:
         if client_info.get("OrgId"):
             results["org_id"] = client_info["OrgId"]
         target = self._target_phrase(client_info)
+        platform_guidance = self._platform_guidance(client_info)
 
         response = await self.client.chat(
             f"Check persistence mechanisms on {target}. "
+            f"{platform_guidance} "
             "Review scheduled tasks, services, and startup items. Look for suspicious, "
             "recently added, unsigned, or user-writable persistence entries."
         )
@@ -222,9 +243,11 @@ class VelociraptorAgent:
         if client_info.get("OrgId"):
             results["org_id"] = client_info["OrgId"]
         target = self._target_phrase(client_info)
+        platform_guidance = self._platform_guidance(client_info)
 
         response = await self.client.chat(
             f"Analyze evidence of execution on {target}. "
+            f"{platform_guidance} "
             "Use prefetch, shimcache, amcache, userassist, and related execution "
             "artifacts to look for suspicious executables or tools commonly used by attackers."
         )

@@ -141,6 +141,21 @@ Edit `agent_poc/mcp_agent.py` to customize:
 The bridge and smoke script both read `VELOCIRAPTOR_API_CONFIG`. Keep that file
 local and out of version control.
 The agent reads `OLLAMA_MODEL` and defaults to `gemma4:e2b`.
+Each `analyze_endpoint()` run resets prior chat state so repeated or batch
+analyses start from fresh host-specific context.
 For multi-tenant deployments, set `VELOCIRAPTOR_ORG_ID` for the default org, or
 pass `org_id` directly to MCP tools such as `client_info`, `windows_pslist`,
 `collect_artifact`, and `get_collection_results`.
+
+The MCP bridge returns JSON text envelopes in the form
+`{"ok": true, "data": ...}` or `{"ok": false, "error": "..."}`. Consumers
+that call MCP tools directly should decode the JSON payload before reading the
+tool result.
+For `collect_artifact`, use the `parameters` argument as a structured JSON
+object with scalar values or lists of scalar values, such as
+`{"PathRegex": ".*", "Targets": ["_BasicCollection"]}`. Legacy compatibility
+input can be passed via `legacy_parameters` and is limited to simple scalar
+assignments or list literals like `Targets=['_BasicCollection']`; raw VQL
+fragments are rejected.
+The `collect_forensic_triage` helper wraps `Windows.Triage.Targets` with
+`Targets='["_BasicCollection"]'` and a collection timeout of `2400` seconds.

@@ -8,6 +8,7 @@ agent_poc/__init__.py
 
 # api cleint config locally
 api_client.yaml
+.mcp.json
 
 # local agent outputs
 agent_poc/output/*
