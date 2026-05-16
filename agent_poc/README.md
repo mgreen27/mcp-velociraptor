@@ -10,7 +10,7 @@ ollama pull gemma4:e2b
 ```bash
 export VELOCIRAPTOR_API_CONFIG=/path/to/api_client.yaml
 export OLLAMA_MODEL=gemma4:e2b
-.venv/bin/python -m agent_poc.mcp_agent RE-DEV
+.venv/bin/python -m agent_poc.mcp_agent RE-DEV -t engagement
 ```
 
 Optional for multi-tenant deployments:
@@ -30,13 +30,26 @@ Choose a readable text view instead of JSON with:
 .venv/bin/python -m agent_poc.mcp_agent RE-DEV -t process --output-type text
 ```
 
+Enable verbose MCP client diagnostics with role labels, collection names, row counts, and summarization progress:
+```bash
+.venv/bin/python -m agent_poc.mcp_agent RE-DEV -t engagement --output-type text -v
+```
+
 ### Analysis Types
 - **triage**: Quick check (processes, network, client info)
-- **process**: Deep process analysis
+- **process**: Single-role process analysis
 - **network**: Network connection analysis
-- **persistence**: Check scheduled tasks, services, etc.
+- **persistence**: Scheduled task and service review
 - **execution**: Evidence of execution artifacts
-- **full**: Comprehensive investigation
+- **engagement**: Parallel manager-led investigation across multiple analyst roles
+- **full**: Alias for `engagement`
+
+### Multi-Agent Design
+- One deterministic engagement manager resolves `client_info`, selects analysts, and synthesizes the final case summary.
+- Each analyst runs in a separate MCP session with its own conversation history.
+- Evidence collection is deterministic in code. The model is used to summarize a pre-collected evidence bundle rather than choose tools free-form.
+- Tool access is filtered by role so process, network, persistence, and execution analysts only collect from their approved tools.
+- The current design is Windows-first. Linux support is limited to the analysts backed by credible Linux tool coverage.
 
 ### Integration Examples
 
@@ -93,10 +106,16 @@ async def handle_alert(alert: dict):
 Results are automatically saved to `./agent_poc/output/` as JSON files:
 ```
 agent_poc/output/
-  ├── WIN10-WS_triage_20240115_143022.json
+  ├── WIN10-WS_engagement_20240115_143022.json
   ├── DC01_full_20240115_150033.json
   └── ...
 ```
+
+Each result now includes:
+- top-level case metadata such as `workflow`, `hostname`, `client_id`, `org_id`, `os_type`, and timestamps
+- `manager_summary` for the final case-level synthesis
+- `analysts` keyed by role with status, summary, allowed tools, timestamps, and duration
+- `errors` and `skipped` for failed or unsupported analysts
 
 ## Configuration
 
@@ -113,9 +132,14 @@ examples.
 
 The bridge and smoke script both read `VELOCIRAPTOR_API_CONFIG`. Keep that file
 local and out of version control.
+Set `VELOCIRAPTOR_DEBUG_VQL=1` only when you want raw VQL request logging on
+stderr for debugging.
+Set `VELOCIRAPTOR_AGENT_VERBOSE=1` only when you want MCP client connection,
+collection progress, and tool-call diagnostics from the agent runtime without
+using the CLI `-v` flag.
 The agent reads `OLLAMA_MODEL` and defaults to `gemma4:e2b`.
-Each `analyze_endpoint()` run resets prior chat state so repeated or batch
-analyses start from fresh host-specific context.
+Each `analyze_endpoint()` run resets prior manager chat state, and each analyst
+uses its own isolated MCP session and conversation history.
 For multi-tenant deployments, set `VELOCIRAPTOR_ORG_ID` for the default org, or
 pass `org_id` directly to MCP tools such as `client_info`, `windows_pslist`,
 `collect_artifact`, and `get_collection_results`.

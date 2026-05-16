@@ -27,6 +27,7 @@ Generate an api config file:
 - Run `VELOCIRAPTOR_API_CONFIG=/path/to/api_client.yaml .venv/bin/python test_api.py` to confirm the API works.
 - The MCP bridge reads the same `VELOCIRAPTOR_API_CONFIG` environment variable.
 - For multi-tenant deployments, optionally set `VELOCIRAPTOR_ORG_ID` to choose a default org context.
+- Set `VELOCIRAPTOR_DEBUG_VQL=1` only when you want raw VQL request logging on stderr for debugging.
 
 ### 3. Connect to Claude desktop or MCP client of choice
 
@@ -48,8 +49,12 @@ The easiest configuration is to run your venv python directly calling mcp_veloci
 }
 ```
 
-The separate agent proof-of-concept now lives under `agent_poc/`. See
-`agent_poc/README.md` for agent-specific usage and automation examples.
+The separate agent proof-of-concept now lives under `agent_poc/`. It now
+includes a Windows-first engagement manager that fans out to isolated process,
+network, persistence, and execution analysts in parallel, with deterministic
+evidence collection and model-only synthesis per role. See
+`agent_poc/README.md` for agent-specific usage and automation examples,
+including verbose collection progress output with artifact names and row counts.
 
 ### 4. Tool Response Format
 

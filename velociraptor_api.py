@@ -1,7 +1,7 @@
 import json
+import logging
 import os
 import re
-import sys
 from pathlib import Path
 from typing import Mapping
 
@@ -11,12 +11,19 @@ from pyvelociraptor import api_pb2, api_pb2_grpc
 
 stub = None
 DEFAULT_ORG_ID = os.environ.get("VELOCIRAPTOR_ORG_ID", "").strip()
+DEBUG_VQL = os.environ.get("VELOCIRAPTOR_DEBUG_VQL", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 VALID_PARAMETER_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 VALID_FIELD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 VALID_ARTIFACT_RE = re.compile(r"^[A-Za-z0-9_.:/-]+$")
 ScalarParameter = str | int | float | bool | None
 ParameterValue = ScalarParameter | list[ScalarParameter]
 SCALAR_PARAMETER_TYPES = (str, int, float, bool)
+logger = logging.getLogger(__name__)
 
 
 def vql_literal(value: ParameterValue) -> str:
@@ -145,7 +152,8 @@ def run_vql_query(vql: str, org_id: str | None = None):
     if resolved_org_id:
         request.org_id = resolved_org_id
     results = []
-    print(request, file=sys.stderr)
+    if DEBUG_VQL:
+        logger.debug("VQL request: %s", request)
     
     for resp in stub.Query(request):
         if hasattr(resp, "error") and resp.error:

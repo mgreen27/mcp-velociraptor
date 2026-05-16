@@ -4,9 +4,13 @@ import os
 import asyncio
 import ast
 import json
+import logging
 import re
 from velociraptor_api import *
 
+
+# Keep stdio responses clean by suppressing chatty MCP library info logs.
+logging.getLogger("mcp").setLevel(logging.WARNING)
 
 mcp = FastMCP("velociraptor-mcp")
 
