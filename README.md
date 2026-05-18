@@ -29,7 +29,7 @@ Generate an api config file:
 - For multi-tenant deployments, optionally set `VELOCIRAPTOR_ORG_ID` to choose a default org context.
 - Set `VELOCIRAPTOR_DEBUG_VQL=1` only when you want raw VQL request logging on stderr for debugging.
 
-### 3. Connect to Claude desktop or MCP client of choice
+### 3. Connect to MCP client of choice
 
 The easiest configuration is to run your venv python directly calling mcp_velociraptor_bridge.
 ```json
@@ -89,6 +89,10 @@ Due to the nature of DFIR, results depend on amount of data returned, model use 
 
 I have included a function to find artifacts and dynamically create collections but had mixed results.
 I have been pleasantly surprised with some results and disappointed when running other collections that cause lots of rows.
+
+Check licencing - Anthropic's DPA is only tied to their Commercial Terms, which means that for 
+client/production endpoint data you would need commercial licencing to leverage this MCP. Other 
+MCP clients work just fine.
 
 Please let me know how you go and feel free to add PR!
 
