@@ -112,15 +112,14 @@ fragments are no longer passed through.
 The bridge now exposes the original Windows/Linux triage tools plus expanded
 fleet, Linux, macOS, Windows, YARA, and response helpers:
 
-Thanks to [@snoe-findley](https://github.com/snoe-findley) for sharing a
-production-hardened fork that inspired several of the expanded cross-platform
-tool wrappers listed below.
-
 - Fleet: `list_orgs`, `client_info`, `list_clients`, `hunt_across_fleet`, `get_hunt_results_tool`, `run_vql`.
 - Linux: process, group, mount, network, users, crontab, services, SSH keys/logins, shell history, last login, ARP cache, journal search, file finder, and YARA process scanning.
 - macOS: process, users, network, LaunchAgents/Daemons, login items, shell history, browser history, quarantine events, TCC database, file finder, and artifact discovery.
 - Windows: process, network, scheduled tasks, services, RecentDocs, Shellbags, USB/mount evidence, execution traces, MFT, USN, SRUM, EVTX, PowerShell, autoruns, WMI persistence, RDP, DNS cache, Recycle Bin, browser history, memory/malfind/mutant checks, shadow copies, timestomp checks, and file/YARA hunting with optional hash calculation.
 - Generic response/collection: `collect_artifact`, `get_collection_results`, `collect_forensic_triage`, `collect_file`, `quarantine_host`, `unquarantine_host`, and `kill_process`.
+
+Thanks to [@snoe-findley](https://github.com/snoe-findley) for sharing a fork
+that expanded available tools and some of the newer cross-platform additions.
 
 ![image](https://github.com/user-attachments/assets/3e810f03-ca74-4757-b5dc-89d4e8f8aef6)
 
