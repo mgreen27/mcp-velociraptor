@@ -10,9 +10,24 @@ ollama pull gemma4:e2b
 ### Usage
 ```bash
 export VELOCIRAPTOR_API_CONFIG=/path/to/api_client.yaml
+export VELOCIRAPTOR_MODEL_PROVIDER=ollama
 export OLLAMA_MODEL=gemma4:e2b
 .venv/bin/python -m agent_poc.mcp_agent RE-DEV -t engagement
 ```
+
+Use Azure OpenAI with:
+```bash
+export VELOCIRAPTOR_MODEL_PROVIDER=azure
+export AZURE_OPENAI_ENDPOINT=https://example-resource.openai.azure.com
+export AZURE_OPENAI_API_KEY=...
+export AZURE_OPENAI_MODEL=gpt-5.4-mini
+.venv/bin/python -m agent_poc.mcp_agent RE-DEV -t engagement
+```
+
+For Azure OpenAI, `AZURE_OPENAI_MODEL` is the model/deployment name passed to
+the API. Azure OpenAI mode sends the pre-collected evidence bundle to the
+configured Azure API account for model summarization. Keep
+`VELOCIRAPTOR_MODEL_PROVIDER=ollama` when endpoint evidence must remain local.
 
 Optional for multi-tenant deployments:
 ```bash
@@ -22,6 +37,7 @@ export VELOCIRAPTOR_ORG_ID=O123
 Run a different workflow with:
 ```bash
 export VELOCIRAPTOR_API_CONFIG=/path/to/api_client.yaml
+export VELOCIRAPTOR_MODEL_PROVIDER=ollama
 export OLLAMA_MODEL=gemma4:e2b
 .venv/bin/python -m agent_poc.mcp_agent RE-DEV -t process
 ```
@@ -42,15 +58,20 @@ Enable verbose MCP client diagnostics with role labels, collection names, row co
 - **network**: Network connection analysis
 - **persistence**: Scheduled task and service review
 - **execution**: Evidence of execution artifacts
-- **engagement**: Parallel manager-led investigation across multiple analyst roles
+- **user_activity**: User activity, logon, browser, and shell-history review where supported
+- **system_inventory**: Generic OS inventory such as users, groups, mounts, removable storage, and host state where supported
+- **filesystem**: Focused filesystem/storage artifact review
+- **security**: Security event and detection artifact review
+- **engagement**: Bounded manager-led investigation across process, network, persistence, execution, user activity, and system inventory roles
+- **deep**: Expanded investigation that also includes filesystem and security roles
 - **full**: Alias for `engagement`
 
 ### Multi-Agent Design
 - One deterministic engagement manager resolves `client_info`, selects analysts, and synthesizes the final case summary.
 - Each analyst runs in a separate MCP session with its own conversation history.
 - Evidence collection is deterministic in code. The model is used to summarize a pre-collected evidence bundle rather than choose tools free-form.
-- Tool access is filtered by role so process, network, persistence, and execution analysts only collect from their approved tools.
-- The current design is Windows-first. Linux support is limited to the analysts backed by credible Linux tool coverage.
+- Tool access is filtered dynamically per analysis type. For example, `execution` only gets execution tools, `engagement` gets bounded analyst roles, and `deep` opts into heavier filesystem and security roles.
+- The agent supports Windows, Linux, and macOS role sets where the bridge has deterministic artifact helpers. Parameter-heavy tools such as hunts, arbitrary `collect_artifact`, YARA scans, quarantine, process kill, and broad file collection remain direct MCP tools rather than automatic agent steps.
 
 ### Integration Examples
 
@@ -141,8 +162,11 @@ stderr for debugging.
 Set `VELOCIRAPTOR_AGENT_VERBOSE=1` only when you want MCP client connection,
 collection progress, and tool-call diagnostics from the agent runtime without
 using the CLI `-v` flag.
-The agent reads `OLLAMA_MODEL` from the environment or `.env` and defaults to
-`gemma4:e2b`.
+The agent reads `VELOCIRAPTOR_MODEL_PROVIDER` from the environment or `.env`
+and defaults to `ollama`. Ollama mode reads `OLLAMA_MODEL` and defaults to
+`gemma4:e2b`. Azure OpenAI mode reads `AZURE_OPENAI_MODEL`, requires
+`AZURE_OPENAI_ENDPOINT` or `AZURE_OPENAI_BASE_URL`, requires
+`AZURE_OPENAI_API_KEY`, and defaults to `gpt-5.4-mini`.
 Each `analyze_endpoint()` run resets prior manager chat state, and each analyst
 uses its own isolated MCP session and conversation history.
 For multi-tenant deployments, set `VELOCIRAPTOR_ORG_ID` for the default org, or
@@ -164,6 +188,6 @@ fragments are rejected.
 The `collect_forensic_triage` helper wraps `Windows.Triage.Targets` with
 `Targets='["_BasicCollection"]'` and a collection timeout of `2400` seconds.
 The MCP server also exposes expanded fleet, Linux, macOS, Windows, YARA, and
-response helpers. The current agent workflow remains Windows-first; Linux and
-macOS tools are available to direct MCP clients but are not yet fully modeled as
-parallel analyst roles.
+response helpers. The POC agent models deterministic Windows, Linux, and macOS
+helpers as bounded analyst roles. Parameter-heavy or disruptive helpers remain
+available to direct MCP clients and are not run automatically by agent profiles.

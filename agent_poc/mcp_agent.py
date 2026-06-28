@@ -13,9 +13,9 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 try:
-    from .velociraptor_mcp_runtime import VelociraptorMCPClient
+    from .velociraptor_mcp_runtime import VelociraptorMCPClient, _default_model, _model_provider
 except ImportError:
-    from velociraptor_mcp_runtime import VelociraptorMCPClient
+    from velociraptor_mcp_runtime import VelociraptorMCPClient, _default_model, _model_provider
 
 
 ANALYST_SYSTEM_PROMPT = (
@@ -45,6 +45,7 @@ WINDOWS_TOOL_REQUESTS = {
     ),
     "network": (
         ("windows_netstat_enriched", {}),
+        ("windows_dns_cache", {}),
     ),
     "persistence": (
         (
@@ -60,6 +61,8 @@ WINDOWS_TOOL_REQUESTS = {
                 )
             },
         ),
+        ("windows_autoruns", {}),
+        ("windows_wmi_persistence", {}),
     ),
     "execution": (
         ("windows_execution_amcache", {}),
@@ -67,7 +70,36 @@ WINDOWS_TOOL_REQUESTS = {
         ("windows_execution_shimcache", {}),
         ("windows_execution_userassist", {}),
         ("windows_execution_bam", {}),
+        ("windows_execution_activitiesCache", {}),
         ("windows_evidence_of_download", {}),
+    ),
+    "user_activity": (
+        ("windows_recentdocs", {}),
+        ("windows_shellbags", {}),
+        ("windows_logon_events", {}),
+        ("windows_rdp_sessions", {}),
+        ("windows_powershell_history", {}),
+        ("windows_powershell_scriptblock", {}),
+        ("windows_browser_history", {}),
+    ),
+    "system_inventory": (
+        ("windows_mounted_mass_storage_usb", {}),
+        ("windows_mountpoints2", {}),
+        ("windows_shadow_copies", {}),
+    ),
+    "filesystem": (
+        ("windows_recycle_bin", {}),
+        ("windows_ntfs_mft", {}),
+        ("windows_ntfs_mft_search", {}),
+        ("windows_usn_journal", {}),
+        ("windows_srum", {}),
+        ("windows_timestomp", {}),
+    ),
+    "security": (
+        ("windows_event_logs", {}),
+        ("windows_event_log_cleared", {}),
+        ("windows_malfind", {}),
+        ("windows_mutants", {}),
     ),
 }
 
@@ -82,6 +114,28 @@ LINUX_TOOL_REQUESTS = {
     ),
     "network": (
         ("linux_netstat_enriched", {}),
+        ("linux_arp_cache", {}),
+    ),
+    "persistence": (
+        ("linux_crontab", {}),
+        ("linux_services", {}),
+        ("linux_ssh_authorized_keys", {}),
+    ),
+    "user_activity": (
+        ("linux_bash_history", {}),
+        ("linux_ssh_logins", {}),
+        ("linux_last_user_login", {}),
+    ),
+    "system_inventory": (
+        ("linux_users", {}),
+        ("linux_groups", {}),
+        ("linux_mounts", {}),
+    ),
+    "security": (
+        ("linux_journal_logs", {}),
+    ),
+    "filesystem": (
+        ("linux_file_finder", {"SearchFilesGlob": "/home/*/Downloads/**"}),
     ),
 }
 
@@ -90,26 +144,130 @@ LINUX_TOOLSETS = {
     for role, requests in LINUX_TOOL_REQUESTS.items()
 }
 
+MACOS_TOOL_REQUESTS = {
+    "process": (
+        ("macos_pslist", {}),
+    ),
+    "network": (
+        ("macos_netstat", {}),
+    ),
+    "persistence": (
+        ("macos_launch_agents", {}),
+        ("macos_login_items", {}),
+    ),
+    "user_activity": (
+        ("macos_bash_history", {}),
+        ("macos_browser_history", {}),
+    ),
+    "system_inventory": (
+        ("macos_users", {}),
+    ),
+    "filesystem": (
+        ("macos_file_finder", {"SearchFilesGlob": "/Users/*/Downloads/**"}),
+    ),
+    "security": (
+        ("macos_quarantine_events", {}),
+        ("macos_tcc_database", {}),
+    ),
+}
+
+MACOS_TOOLSETS = {
+    role: tuple(tool_name for tool_name, _ in requests)
+    for role, requests in MACOS_TOOL_REQUESTS.items()
+}
+
 ROLE_DESCRIPTIONS = {
     "process": "Process analysis",
     "network": "Network connection analysis",
     "persistence": "Persistence analysis",
     "execution": "Execution artifact analysis",
+    "user_activity": "User activity analysis",
+    "system_inventory": "System inventory analysis",
+    "filesystem": "Filesystem and storage analysis",
+    "security": "Security event and detection analysis",
+}
+
+ANALYSIS_ROLE_PROFILES = {
+    "triage": ("process", "network"),
+    "engagement": (
+        "process",
+        "network",
+        "persistence",
+        "execution",
+        "user_activity",
+        "system_inventory",
+    ),
+    "deep": (
+        "process",
+        "network",
+        "persistence",
+        "execution",
+        "user_activity",
+        "system_inventory",
+        "filesystem",
+        "security",
+    ),
 }
 
 TOOL_DISPLAY_NAMES = {
+    "linux_arp_cache": "Linux.Network.ArpCache",
+    "linux_bash_history": "Linux.Sys.BashHistory",
+    "linux_crontab": "Linux.Sys.Crontab",
+    "linux_file_finder": "Linux.Search.FileFinder",
+    "linux_groups": "Linux.Sys.Groups",
+    "linux_journal_logs": "Linux.Forensics.Journal",
+    "linux_last_user_login": "Linux.Sys.LastUserLogin",
+    "linux_mounts": "Linux.Mounts",
     "linux_pslist": "Linux.Sys.Pslist",
     "linux_netstat_enriched": "Linux.Network.NetstatEnriched",
+    "linux_services": "Linux.Sys.Services",
+    "linux_ssh_authorized_keys": "Linux.Sys.SSHAuthorizedKeys",
+    "linux_ssh_logins": "Linux.Syslog.SSHLogin",
+    "linux_users": "Linux.Sys.Users",
+    "macos_bash_history": "MacOS.Sys.BashHistory",
+    "macos_browser_history": "MacOS.Applications.Chrome.History",
+    "macos_file_finder": "MacOS.Search.FileFinder",
+    "macos_launch_agents": "MacOS.Sys.LaunchAgents",
+    "macos_login_items": "MacOS.Sys.LoginItems",
+    "macos_netstat": "MacOS.Network.Netstat",
+    "macos_pslist": "MacOS.Sys.Pslist",
+    "macos_quarantine_events": "MacOS.Forensics.Quarantine",
+    "macos_tcc_database": "MacOS.System.TCC",
+    "macos_users": "MacOS.Sys.Users",
     "windows_pslist": "Windows.System.Pslist",
     "windows_netstat_enriched": "Windows.Network.NetstatEnriched/Netstat",
     "windows_scheduled_tasks": "Windows.System.TaskScheduler/Analysis",
     "windows_services": "Windows.System.Services",
+    "windows_autoruns": "Windows.Sys.StartupItems",
+    "windows_browser_history": "Windows.Applications.Chrome.History",
+    "windows_dns_cache": "Windows.System.DNSCache",
+    "windows_event_log_cleared": "Windows.EventLogs.Cleared",
+    "windows_event_logs": "Windows.EventLogs.EvtxHunter",
     "windows_execution_amcache": "Windows.Detection.Amcache",
+    "windows_execution_activitiesCache": "Windows.Forensics.Timeline",
+    "windows_execution_bam": "Windows.Forensics.Bam",
     "windows_execution_prefetch": "Windows.Forensics.Prefetch",
     "windows_execution_shimcache": "Windows.Registry.AppCompatCache",
     "windows_execution_userassist": "Windows.Registry.UserAssist",
-    "windows_execution_bam": "Windows.Forensics.Bam",
     "windows_evidence_of_download": "Windows.Analysis.EvidenceOfDownload",
+    "windows_logon_events": "Windows.EventLogs.LogonSessions",
+    "windows_malfind": "Windows.Detection.Malfind",
+    "windows_mounted_mass_storage_usb": "Windows.Mounted.Mass.Storage",
+    "windows_mountpoints2": "Windows.Registry.MountPoints2",
+    "windows_mutants": "Windows.Detection.Mutants",
+    "windows_ntfs_mft": "Windows.NTFS.MFT",
+    "windows_ntfs_mft_search": "Windows.NTFS.MFT/Search",
+    "windows_powershell_history": "Windows.System.Powershell.PSReadline",
+    "windows_powershell_scriptblock": "Windows.EventLogs.PowerShellScriptBlock",
+    "windows_rdp_sessions": "Windows.EventLogs.RDPAuth",
+    "windows_recentdocs": "Windows.Registry.RecentDocs",
+    "windows_recycle_bin": "Windows.Forensics.RecycleBin",
+    "windows_shadow_copies": "Windows.System.ShadowCopies",
+    "windows_shellbags": "Windows.Forensics.Shellbags",
+    "windows_srum": "Windows.Forensics.SRUM",
+    "windows_timestomp": "Windows.NTFS.Timestomp",
+    "windows_usn_journal": "Windows.Forensics.Usn",
+    "windows_wmi_persistence": "Windows.Persistence.PermanentWMIEvents",
 }
 
 SUSPICIOUS_KEYWORDS = (
@@ -210,7 +368,14 @@ class CaseContext:
 
     @property
     def normalized_os_type(self) -> str:
-        return (self.os_type or "unknown").lower()
+        lowered = (self.os_type or "unknown").strip().lower()
+        if lowered.startswith("win"):
+            return "windows"
+        if lowered.startswith("lin"):
+            return "linux"
+        if lowered.startswith("mac") or lowered in {"darwin", "osx"}:
+            return "macos"
+        return lowered
 
 
 @dataclass(frozen=True)
@@ -302,7 +467,8 @@ class VelociraptorAgent:
         max_parallel_analysts: int = 4,
         verbose: bool = False,
     ):
-        self.model = model or os.environ.get("OLLAMA_MODEL", "gemma4:e2b")
+        self.model_provider = _model_provider()
+        self.model = model or _default_model(self.model_provider)
         self.client_factory = client_factory or VelociraptorMCPClient
         self.verbose = verbose
         self.client = self._create_client(label="management agent")
@@ -355,7 +521,8 @@ class VelociraptorAgent:
         Args:
             hostname: Target hostname or client_id.
             analysis_type: One of triage, process, network, persistence,
-                execution, engagement, or full.
+                execution, user_activity, system_inventory, filesystem,
+                security, engagement, deep, or full.
 
         Returns:
             Structured analysis results.
@@ -364,17 +531,12 @@ class VelociraptorAgent:
         self.client.reset_conversation()
 
         normalized_type = "engagement" if analysis_type == "full" else analysis_type
-        analysis_workflows = {
-            "triage": self._triage_workflow,
-            "process": lambda value: self._single_role_workflow(value, "process"),
-            "network": lambda value: self._single_role_workflow(value, "network"),
-            "persistence": lambda value: self._single_role_workflow(value, "persistence"),
-            "execution": lambda value: self._single_role_workflow(value, "execution"),
-            "engagement": self._engagement_workflow,
-        }
-
-        workflow = analysis_workflows.get(normalized_type, self._triage_workflow)
-        results = await workflow(hostname)
+        if normalized_type in ANALYSIS_ROLE_PROFILES:
+            results = await self._profile_workflow(hostname, normalized_type)
+        elif normalized_type in ROLE_DESCRIPTIONS:
+            results = await self._single_role_workflow(hostname, normalized_type)
+        else:
+            results = await self._profile_workflow(hostname, "triage")
 
         self._save_results(hostname, analysis_type, results)
         return results
@@ -405,11 +567,21 @@ class VelociraptorAgent:
 
     @staticmethod
     def _platform_guidance(client_info: Dict[str, Any]) -> str:
-        os_type = (client_info.get("OSType") or "").lower()
+        os_type = CaseContext(
+            hostname="",
+            client_id="",
+            org_id=None,
+            os_type=client_info.get("OSType") or "",
+            target="",
+            platform_guidance="",
+            shared_guidance="",
+        ).normalized_os_type
         if os_type == "windows":
             return "This endpoint is Windows. Use only approved Windows Velociraptor tools for your role."
         if os_type == "linux":
             return "This endpoint is Linux. Use only approved Linux Velociraptor tools for your role."
+        if os_type == "macos":
+            return "This endpoint is macOS. Use only approved macOS Velociraptor tools for your role."
         return "Choose tools based on the resolved endpoint metadata."
 
     def _shared_guidance(self) -> str:
@@ -445,9 +617,11 @@ class VelociraptorAgent:
 
     @staticmethod
     def _tool_requests(spec: AnalystSpec) -> tuple[tuple[str, Dict[str, Any]], ...]:
-        requests_by_os = (
-            WINDOWS_TOOL_REQUESTS if spec.os_type == "windows" else LINUX_TOOL_REQUESTS
-        )
+        requests_by_os = {
+            "windows": WINDOWS_TOOL_REQUESTS,
+            "linux": LINUX_TOOL_REQUESTS,
+            "macos": MACOS_TOOL_REQUESTS,
+        }.get(spec.os_type, {})
         return requests_by_os.get(spec.role, ())
 
     @staticmethod
@@ -531,6 +705,24 @@ class VelociraptorAgent:
                 or _looks_user_writable_path(path)
                 or _contains_keyword(path)
                 or _contains_keyword(command_line)
+            )
+        if role in {"user_activity", "system_inventory", "filesystem"}:
+            return (
+                _looks_user_writable_path(path)
+                or _contains_keyword(path)
+                or _contains_keyword(command_line)
+            )
+        if role == "security":
+            status = str(row.get("Status") or row.get("Result") or "").lower()
+            return (
+                _looks_user_writable_path(path)
+                or _contains_keyword(path)
+                or _contains_keyword(command_line)
+                or status in {"suspicious", "malicious", "detected"}
+                or any(
+                    str(row.get(field) or "").strip().lower() in {"true", "yes", "1"}
+                    for field in ("Matched", "Match", "Hit", "Suspicious", "Malicious")
+                )
             )
         return False
 
@@ -628,6 +820,23 @@ class VelociraptorAgent:
                 "Identify suspicious execution evidence, notable benign explanations, "
                 "and the highest-priority follow-up execution leads."
             ),
+            "user_activity": (
+                "Identify suspicious user activity, notable benign explanations, "
+                "and the highest-priority follow-up user-activity leads."
+            ),
+            "system_inventory": (
+                "Identify notable system inventory findings, unusual users, groups, "
+                "mounts, removable storage, or host state, and the highest-priority "
+                "follow-up inventory leads."
+            ),
+            "filesystem": (
+                "Identify suspicious filesystem or storage activity, notable benign "
+                "explanations, and the highest-priority follow-up filesystem leads."
+            ),
+            "security": (
+                "Identify suspicious security events or detections, notable benign "
+                "explanations, and the highest-priority follow-up detection leads."
+            ),
         }
         return (
             f"You are the {spec.description.lower()} specialist for {case_context.target}. "
@@ -659,8 +868,13 @@ class VelociraptorAgent:
         case_context: CaseContext,
         requested_roles: Optional[List[str]] = None,
     ) -> tuple[List[AnalystSpec], List[Dict[str, str]]]:
-        requested = requested_roles or ["process", "network", "persistence", "execution"]
-        toolsets = WINDOWS_TOOLSETS if case_context.normalized_os_type == "windows" else LINUX_TOOLSETS
+        toolsets_by_os = {
+            "windows": WINDOWS_TOOLSETS,
+            "linux": LINUX_TOOLSETS,
+            "macos": MACOS_TOOLSETS,
+        }
+        toolsets = toolsets_by_os.get(case_context.normalized_os_type, {})
+        requested = requested_roles or list(toolsets.keys())
 
         specs: List[AnalystSpec] = []
         skipped: List[Dict[str, str]] = []
@@ -870,12 +1084,12 @@ class VelociraptorAgent:
         result.finalize(completed_at)
         return result.to_dict()
 
-    async def _triage_workflow(self, hostname: str) -> Dict[str, Any]:
-        """Quick triage using process and network analysts."""
+    async def _profile_workflow(self, hostname: str, workflow: str) -> Dict[str, Any]:
+        """Run a named analysis profile with its bounded analyst roles."""
         return await self._run_structured_workflow(
             hostname,
-            workflow="triage",
-            requested_roles=["process", "network"],
+            workflow=workflow,
+            requested_roles=list(ANALYSIS_ROLE_PROFILES[workflow]),
             synthesize=True,
         )
 
@@ -890,12 +1104,7 @@ class VelociraptorAgent:
 
     async def _engagement_workflow(self, hostname: str) -> Dict[str, Any]:
         """Multi-analyst engagement workflow."""
-        return await self._run_structured_workflow(
-            hostname,
-            workflow="engagement",
-            requested_roles=None,
-            synthesize=True,
-        )
+        return await self._profile_workflow(hostname, "engagement")
 
     async def batch_analyze(
         self,
@@ -1013,7 +1222,12 @@ def parse_args() -> argparse.Namespace:
             "network",
             "persistence",
             "execution",
+            "user_activity",
+            "system_inventory",
+            "filesystem",
+            "security",
             "engagement",
+            "deep",
             "full",
         ],
         help="Analysis workflow to run",

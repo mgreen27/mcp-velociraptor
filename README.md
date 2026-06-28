@@ -30,6 +30,7 @@ Generate an api config file:
 - For multi-tenant deployments, optionally set `VELOCIRAPTOR_ORG_ID` to choose a default org context.
 - Set `VELOCIRAPTOR_DEBUG_VQL=1` only when you want raw VQL request logging on stderr for debugging.
 - Set `ENABLE_DANGEROUS_TOOLS=true` only when you explicitly want to enable raw VQL, quarantine, and remote process-kill tools.
+- The agent POC defaults to local Ollama summaries. Set `VELOCIRAPTOR_MODEL_PROVIDER=azure`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, and `AZURE_OPENAI_MODEL` when you explicitly want Azure OpenAI summaries.
 
 ### 3. Connect to MCP client of choice
 
@@ -77,9 +78,14 @@ then `VELOCIRAPTOR_ENV_FILE` if set, then repo-local `.env`, then fallback
 paths such as `./api_client.yaml` and `~/.config/api_client.yaml`.
 
 The separate agent proof-of-concept now lives under `agent_poc/`. It now
-includes a Windows-first engagement manager that fans out to isolated process,
-network, persistence, and execution analysts in parallel, with deterministic
-evidence collection and model-only synthesis per role. See
+includes an engagement manager that fans out to isolated, dynamically
+allowlisted analysts in parallel. The `engagement` profile runs bounded
+process, network, persistence, execution, user-activity, and system-inventory
+roles; `deep` also opts into heavier filesystem and security roles. Evidence
+collection is deterministic and synthesis is model-only per role. It supports local
+Ollama summaries by default and opt-in Azure OpenAI API summaries via
+environment configuration. Azure OpenAI mode sends collected evidence bundles
+to the configured Azure API account for summarization. See
 `agent_poc/README.md` for agent-specific usage and automation examples,
 including verbose collection progress output with artifact names and row counts.
 

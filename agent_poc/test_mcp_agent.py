@@ -5,7 +5,9 @@ from contextlib import redirect_stderr
 from io import StringIO
 
 from agent_poc.mcp_agent import (
+    ANALYSIS_ROLE_PROFILES,
     LINUX_TOOLSETS,
+    MACOS_TOOLSETS,
     WINDOWS_TOOLSETS,
     CaseContext,
     VelociraptorAgent,
@@ -77,6 +79,8 @@ class FakeClient:
             if isinstance(payload, dict) and "ok" in payload:
                 return payload
             return {"ok": True, "data": payload}
+        if tool_name in self.factory.tool_names:
+            return {"ok": True, "data": []}
 
         raise AssertionError(f"Unexpected tool call: {tool_name}")
 
@@ -129,6 +133,8 @@ class FakeClientFactory:
         for toolset in WINDOWS_TOOLSETS.values():
             all_tools.update(toolset)
         for toolset in LINUX_TOOLSETS.values():
+            all_tools.update(toolset)
+        for toolset in MACOS_TOOLSETS.values():
             all_tools.update(toolset)
         self.tool_names = sorted(all_tools | {"client_info"})
 
@@ -265,24 +271,32 @@ class VelociraptorAgentTests(unittest.IsolatedAsyncioTestCase):
             platform_guidance="Linux only",
             shared_guidance="shared",
         )
+        macos_context = CaseContext(
+            hostname="MAC",
+            client_id="C.mac",
+            org_id=None,
+            os_type="Darwin",
+            target="macos client C.mac",
+            platform_guidance="macOS only",
+            shared_guidance="shared",
+        )
 
         windows_specs, windows_skipped = agent._select_analysts(windows_context)
         linux_specs, linux_skipped = agent._select_analysts(linux_context)
+        macos_specs, macos_skipped = agent._select_analysts(macos_context)
 
-        self.assertEqual([spec.role for spec in windows_specs], ["process", "network", "persistence", "execution"])
+        self.assertEqual([spec.role for spec in windows_specs], list(WINDOWS_TOOLSETS.keys()))
         self.assertEqual(windows_skipped, [])
-        self.assertEqual([spec.role for spec in linux_specs], ["process", "network"])
-        self.assertEqual(
-            [item["role"] for item in linux_skipped],
-            ["persistence", "execution"],
-        )
+        self.assertEqual([spec.role for spec in linux_specs], list(LINUX_TOOLSETS.keys()))
+        self.assertEqual(linux_skipped, [])
+        self.assertEqual([spec.role for spec in macos_specs], list(MACOS_TOOLSETS.keys()))
+        self.assertEqual(macos_skipped, [])
 
     async def test_engagement_uses_one_client_per_analyst(self):
+        engagement_roles = ANALYSIS_ROLE_PROFILES["engagement"]
         responses = {
-            tuple(sorted(WINDOWS_TOOLSETS["process"])): "process finding",
-            tuple(sorted(WINDOWS_TOOLSETS["network"])): "network finding",
-            tuple(sorted(WINDOWS_TOOLSETS["persistence"])): "persistence finding",
-            tuple(sorted(WINDOWS_TOOLSETS["execution"])): "execution finding",
+            tuple(sorted(tools)): f"{role} finding"
+            for role, tools in WINDOWS_TOOLSETS.items()
         }
         factory = FakeClientFactory(
             analyst_responses=responses,
@@ -298,23 +312,18 @@ class VelociraptorAgentTests(unittest.IsolatedAsyncioTestCase):
         analyst_instances = [
             client for client in factory.instances if client.default_allowed_tools is not None
         ]
-        self.assertEqual(len(factory.instances), 5)
-        self.assertEqual(len(analyst_instances), 4)
+        self.assertEqual(len(factory.instances), 1 + len(engagement_roles))
+        self.assertEqual(len(analyst_instances), len(engagement_roles))
         self.assertEqual(
             {tuple(sorted(client.default_allowed_tools)) for client in analyst_instances},
-            {tuple(sorted(tools)) for tools in WINDOWS_TOOLSETS.values()},
+            {tuple(sorted(WINDOWS_TOOLSETS[role])) for role in engagement_roles},
         )
         self.assertEqual(factory.instances[0].label, "management agent")
         self.assertEqual(
             sorted(client.label for client in analyst_instances),
-            [
-                "execution analyst",
-                "network analyst",
-                "persistence analyst",
-                "process analyst",
-            ],
+            sorted(f"{role} analyst" for role in engagement_roles),
         )
-        self.assertEqual(sorted(result["analysts"].keys()), ["execution", "network", "persistence", "process"])
+        self.assertEqual(sorted(result["analysts"].keys()), sorted(engagement_roles))
 
     async def test_partial_analyst_failure_does_not_abort(self):
         factory = FakeClientFactory(
@@ -367,6 +376,7 @@ class VelociraptorAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(factory.client_info_call_count, 1)
 
     async def test_analysts_receive_filtered_tool_allowlists(self):
+        engagement_roles = ANALYSIS_ROLE_PROFILES["engagement"]
         factory = FakeClientFactory(manager_response=lambda prompt: "manager summary")
         agent = self._build_agent(factory)
         await agent.initialize()
@@ -384,8 +394,42 @@ class VelociraptorAgentTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual(
             set(analyst_tool_calls),
-            {tool for tools in WINDOWS_TOOLSETS.values() for tool in tools},
+            {
+                tool
+                for role in engagement_roles
+                for tool in WINDOWS_TOOLSETS[role]
+            },
         )
+
+    async def test_execution_workflow_only_uses_execution_tools(self):
+        factory = FakeClientFactory(manager_response=lambda prompt: "manager summary")
+        agent = self._build_agent(factory)
+        await agent.initialize()
+        try:
+            result = await agent.analyze_endpoint("RE-DEV", "execution")
+        finally:
+            await agent.shutdown()
+
+        analyst_tool_calls = [
+            tool_name
+            for client in factory.instances
+            if client.default_allowed_tools is not None
+            for tool_name, _arguments in client.call_tool_calls
+            if tool_name != "client_info"
+        ]
+        self.assertEqual(set(analyst_tool_calls), set(WINDOWS_TOOLSETS["execution"]))
+        self.assertEqual(sorted(result["analysts"].keys()), ["execution"])
+
+    async def test_deep_profile_uses_all_defined_windows_roles(self):
+        factory = FakeClientFactory(manager_response=lambda prompt: "manager summary")
+        agent = self._build_agent(factory)
+        await agent.initialize()
+        try:
+            result = await agent.analyze_endpoint("RE-DEV", "deep")
+        finally:
+            await agent.shutdown()
+
+        self.assertEqual(sorted(result["analysts"].keys()), sorted(WINDOWS_TOOLSETS))
 
     async def test_analyst_results_include_compact_evidence(self):
         factory = FakeClientFactory(manager_response=lambda prompt: "manager summary")
@@ -404,10 +448,8 @@ class VelociraptorAgentTests(unittest.IsolatedAsyncioTestCase):
     async def test_manager_synthesis_uses_analyst_outputs(self):
         factory = FakeClientFactory(
             analyst_responses={
-                tuple(sorted(WINDOWS_TOOLSETS["process"])): "process finding",
-                tuple(sorted(WINDOWS_TOOLSETS["network"])): "network finding",
-                tuple(sorted(WINDOWS_TOOLSETS["persistence"])): "persistence finding",
-                tuple(sorted(WINDOWS_TOOLSETS["execution"])): "execution finding",
+                tuple(sorted(tools)): f"{role} finding"
+                for role, tools in WINDOWS_TOOLSETS.items()
             },
             manager_response=lambda prompt: prompt,
         )
@@ -422,6 +464,10 @@ class VelociraptorAgentTests(unittest.IsolatedAsyncioTestCase):
         manager_prompt = manager_client.chat_calls[0]["user_message"]
         self.assertIn("process finding", manager_prompt)
         self.assertIn("network finding", manager_prompt)
+        self.assertIn("user_activity finding", manager_prompt)
+        self.assertIn("system_inventory finding", manager_prompt)
+        self.assertNotIn("filesystem finding", manager_prompt)
+        self.assertNotIn("security finding", manager_prompt)
         self.assertNotIn("Analyze running processes on", manager_prompt)
         self.assertEqual(result["manager_summary"], manager_prompt)
 
@@ -458,7 +504,7 @@ class VelociraptorAgentTests(unittest.IsolatedAsyncioTestCase):
         output = stderr.getvalue()
         self.assertIn("execution analyst running Windows.Detection.Amcache", output)
         self.assertIn("execution analyst running Windows.Forensics.Prefetch", output)
-        self.assertIn("execution analyst summarizing evidence from 6 collections", output)
+        self.assertIn("execution analyst summarizing evidence from 7 collections", output)
 
 
 if __name__ == "__main__":

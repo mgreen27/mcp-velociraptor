@@ -20,3 +20,4 @@ sse-starlette
 starlette
 uvicorn
 ollama
+openai

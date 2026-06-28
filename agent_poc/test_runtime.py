@@ -1,7 +1,13 @@
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
-from agent_poc.velociraptor_mcp_runtime import VelociraptorMCPClient
+from agent_poc.velociraptor_mcp_runtime import (
+    VelociraptorMCPClient,
+    _azure_openai_base_url,
+    _default_model,
+    _model_provider,
+)
 
 
 class VelociraptorMCPClientRuntimeTests(unittest.TestCase):
@@ -30,6 +36,28 @@ class VelociraptorMCPClientRuntimeTests(unittest.TestCase):
             '{"ok": true, "data": {"client_id": "C.1234"}}'
         )
         self.assertEqual(payload, {"ok": True, "data": {"client_id": "C.1234"}})
+
+    def test_model_provider_defaults_to_ollama(self):
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(_model_provider(), "ollama")
+            self.assertEqual(_default_model("ollama"), "gemma4:e2b")
+
+    def test_azure_provider_uses_azure_model_default(self):
+        with patch.dict("os.environ", {"VELOCIRAPTOR_MODEL_PROVIDER": "azure"}, clear=True):
+            client = VelociraptorMCPClient()
+            self.assertEqual(client.model_provider, "azure")
+            self.assertEqual(client.model, "gpt-5.4-mini")
+
+    def test_azure_base_url_appends_openai_v1(self):
+        with patch.dict(
+            "os.environ",
+            {"AZURE_OPENAI_ENDPOINT": "https://example-resource.openai.azure.com"},
+            clear=True,
+        ):
+            self.assertEqual(
+                _azure_openai_base_url(),
+                "https://example-resource.openai.azure.com/openai/v1/",
+            )
 
 
 if __name__ == "__main__":
