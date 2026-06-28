@@ -102,6 +102,159 @@ def normalize_env_dict(parameters: Mapping[str, ParameterValue] | None = None) -
 
     return ",".join(items)
 
+
+def normalize_parameter_dict(
+    parameters: Mapping[str, ParameterValue] | None = None,
+) -> dict[str, ParameterValue]:
+    if parameters is None:
+        return {}
+    if not isinstance(parameters, Mapping):
+        raise TypeError("parameters must be a mapping or None")
+
+    normalized = {}
+    for key, value in parameters.items():
+        if not VALID_PARAMETER_NAME_RE.fullmatch(key):
+            raise ValueError(f"Invalid parameter name: {key!r}")
+        normalized[key] = normalize_parameter_value(value)
+    return normalized
+
+
+def _artifact_spec_key(artifact: str) -> str:
+    escaped = artifact.replace("`", "\\`")
+    return f"`{escaped}`"
+
+
+def hunt_spec_vql(
+    artifact: str,
+    parameters: Mapping[str, ParameterValue] | None = None,
+) -> str:
+    normalized_artifact = normalize_artifact_name(artifact)
+    normalized_parameters = normalize_parameter_dict(parameters)
+    if not normalized_parameters:
+        return ""
+
+    env_items = []
+    for key, value in sorted(normalized_parameters.items()):
+        env_items.append(f"{key}={vql_literal(value)}")
+    return (
+        "dict("
+        f"{_artifact_spec_key(normalized_artifact)}=dict("
+        + ",".join(env_items)
+        + "))"
+    )
+
+
+def _compiled_arg_env_map(compiled_arg: dict) -> dict[str, ParameterValue]:
+    env_values = {}
+    for item in compiled_arg.get("env") or []:
+        if not isinstance(item, dict):
+            continue
+        key = item.get("key")
+        if not key:
+            continue
+        env_values[str(key)] = item.get("value")
+    return env_values
+
+
+def _parameter_values_equal(actual, expected: ParameterValue) -> bool:
+    if actual == expected:
+        return True
+    if str(actual) == str(expected):
+        return True
+    if isinstance(expected, bool):
+        return str(actual).strip().lower() in {
+            "true" if expected else "false",
+            "y" if expected else "n",
+            "1" if expected else "0",
+        }
+    if isinstance(expected, list):
+        try:
+            parsed = json.loads(str(actual))
+        except json.JSONDecodeError:
+            parsed = None
+        return parsed == expected
+    return False
+
+
+def _compiled_arg_mentions_artifact(compiled_arg: dict, artifact: str) -> bool:
+    haystack_parts = []
+    for item in compiled_arg.get("artifacts") or []:
+        if isinstance(item, dict):
+            haystack_parts.append(str(item.get("name") or ""))
+        else:
+            haystack_parts.append(str(item))
+    for query in compiled_arg.get("Query") or []:
+        if not isinstance(query, dict):
+            continue
+        haystack_parts.append(str(query.get("Name") or ""))
+        haystack_parts.append(str(query.get("VQL") or ""))
+    haystack = "\n".join(haystack_parts)
+    artifact_token = artifact.replace(".", "_")
+    return artifact in haystack or artifact_token in haystack
+
+
+def validate_hunt_parameters(
+    hunt_info: dict,
+    artifact: str,
+    parameters: Mapping[str, ParameterValue] | None = None,
+) -> dict:
+    normalized_artifact = normalize_artifact_name(artifact)
+    normalized_parameters = normalize_parameter_dict(parameters)
+    if not normalized_parameters:
+        return {"validated": False, "reason": "no_parameters_requested"}
+
+    start_request = hunt_info.get("start_request")
+    if not isinstance(start_request, dict):
+        request = hunt_info.get("Request")
+        if isinstance(request, dict):
+            start_request = request.get("start_request")
+    if not isinstance(start_request, dict):
+        raise RuntimeError("Parameterized hunt has no start_request to validate.")
+
+    compiled_args = start_request.get("compiled_collector_args")
+    if not isinstance(compiled_args, list) or not compiled_args:
+        raise RuntimeError(
+            "Parameterized hunt has no compiled_collector_args to validate."
+        )
+
+    artifact_candidates = [
+        compiled_arg
+        for compiled_arg in compiled_args
+        if isinstance(compiled_arg, dict)
+        and _compiled_arg_mentions_artifact(compiled_arg, normalized_artifact)
+    ]
+    candidates = artifact_candidates or [
+        compiled_arg
+        for compiled_arg in compiled_args
+        if isinstance(compiled_arg, dict)
+    ]
+
+    for compiled_arg in candidates:
+        if not isinstance(compiled_arg, dict):
+            continue
+        env_map = _compiled_arg_env_map(compiled_arg)
+        missing_or_mismatched = []
+        for key, expected in normalized_parameters.items():
+            if key not in env_map:
+                missing_or_mismatched.append(key)
+                continue
+            if not _parameter_values_equal(env_map[key], expected):
+                missing_or_mismatched.append(key)
+        if not missing_or_mismatched:
+            return {
+                "validated": True,
+                "parameters": normalized_parameters,
+                "compiled_env": env_map,
+            }
+
+    expected_env = ", ".join(
+        f"{key}={value}" for key, value in sorted(normalized_parameters.items())
+    )
+    raise RuntimeError(
+        "Refusing to start parameterized hunt because Velociraptor did not "
+        f"compile the requested env for {normalized_artifact}: {expected_env}"
+    )
+
 def resolve_config_path(config_path: str | None = None) -> Path:
     explicit_path = config_path or os.environ.get("VELOCIRAPTOR_API_CONFIG")
     if explicit_path:
@@ -258,21 +411,116 @@ def start_hunt(
     org_id: str | None = None,
 ) -> list[dict]:
     normalized_artifact = normalize_artifact_name(artifact)
-    normalized_parameters = normalize_env_dict(parameters)
     hunt_description = description or f"MCP Hunt: {normalized_artifact}"
-    os_arg = ""
+    normalized_parameters = normalize_parameter_dict(parameters)
+    spec_vql = hunt_spec_vql(normalized_artifact, normalized_parameters)
+    create_paused = not bool(normalized_parameters)
+
+    hunt_args = [
+        f"description={vql_literal(hunt_description)}",
+        f"artifacts={vql_literal(normalized_artifact)}",
+    ]
+    if spec_vql:
+        hunt_args.append(f"spec={spec_vql}")
     if os_filter.strip():
-        os_arg = f", os_name={vql_literal(os_filter.strip())}"
+        hunt_args.append(f"os={vql_literal(os_filter.strip())}")
+    if create_paused:
+        hunt_args.append("pause=TRUE")
+
     vql = (
-        "LET hunt_result <= hunt("
-        f"description={vql_literal(hunt_description)}, "
-        f"artifacts={vql_literal(normalized_artifact)}, "
-        f"env=dict({normalized_parameters})"
-        f"{os_arg}) "
-        "SELECT hunt_id, hunt_description as description, artifacts, state "
-        "FROM foreach(row=hunt_result)"
+        "SELECT hunt(" + ", ".join(hunt_args) + ") AS HuntResult FROM scope()"
     )
-    return run_vql_query(vql, org_id=org_id)
+    rows = run_vql_query(vql, org_id=org_id)
+    hunt_result = rows[0].get("HuntResult") if rows else None
+    hunt_id = ""
+    if isinstance(hunt_result, dict):
+        request = hunt_result.get("Request")
+        hunt_id = str(
+            hunt_result.get("HuntId")
+            or hunt_result.get("hunt_id")
+            or (request.get("hunt_id") if isinstance(request, dict) else "")
+            or ""
+        )
+    if not hunt_id:
+        hunt_id = _find_hunt_id_by_description(hunt_description, org_id=org_id)
+    if not hunt_id:
+        raise RuntimeError("Velociraptor hunt() did not return a hunt id.")
+
+    validation = {"validated": False, "reason": "no_parameters_requested"}
+    if normalized_parameters:
+        hunt_info = _get_hunt_info(hunt_id, org_id=org_id)
+        try:
+            validation = validate_hunt_parameters(
+                hunt_info,
+                normalized_artifact,
+                normalized_parameters,
+            )
+        except Exception:
+            run_vql_query(
+                "SELECT hunt_update(hunt_id="
+                f"{vql_literal(hunt_id)}, stop=TRUE) AS Result FROM scope()",
+                org_id=org_id,
+            )
+            raise
+
+    start_rows = [{"Result": hunt_id}]
+    if create_paused:
+        start_rows = run_vql_query(
+            "SELECT hunt_update(hunt_id="
+            f"{vql_literal(hunt_id)}, start=TRUE) AS Result FROM scope()",
+            org_id=org_id,
+        )
+    return [
+        {
+            "hunt_id": hunt_id,
+            "description": hunt_description,
+            "artifacts": [normalized_artifact],
+            "parameters": normalized_parameters,
+            "parameter_validation": validation,
+            "os_filter": os_filter,
+            "state": "STARTED",
+            "created_paused": create_paused,
+            "start_result": start_rows[0].get("Result") if start_rows else None,
+        }
+    ]
+
+
+def _find_hunt_id_by_description(
+    description: str,
+    org_id: str | None = None,
+) -> str:
+    rows = run_vql_query(
+        "SELECT hunt_id, create_time, hunt_description "
+        "FROM hunts() "
+        f"WHERE hunt_description = {vql_literal(description)} "
+        "ORDER BY create_time DESC LIMIT 1",
+        org_id=org_id,
+    )
+    if not rows:
+        return ""
+    return str(rows[0].get("hunt_id") or "")
+
+
+def _get_hunt_info(
+    hunt_id: str,
+    org_id: str | None = None,
+) -> dict:
+    rows = run_vql_query(
+        "SELECT hunt_info(hunt_id="
+        f"{vql_literal(hunt_id)}) AS Hunt FROM scope()",
+        org_id=org_id,
+    )
+    if rows and isinstance(rows[0].get("Hunt"), dict):
+        return rows[0]["Hunt"]
+
+    rows = run_vql_query(
+        "SELECT * FROM hunts(hunt_id="
+        f"{vql_literal(hunt_id)}) LIMIT 1",
+        org_id=org_id,
+    )
+    if rows:
+        return rows[0]
+    raise RuntimeError(f"Hunt {hunt_id} was not found after creation.")
 
 
 def get_hunt_results(

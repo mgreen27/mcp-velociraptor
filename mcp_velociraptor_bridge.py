@@ -193,12 +193,21 @@ def _parse_collection_parameters(parameters: str) -> ArtifactParameters | None:
     }
 
 
-def _summarize_artifacts(name_regex: str, org_id: str = "") -> list[dict]:
+def _summarize_artifacts(
+    scope_regex: str,
+    org_id: str = "",
+    include_parameter_details: bool = False,
+    name_regex: str = ".",
+) -> list[dict]:
+    parameter_projection = "*" if include_parameter_details else "name"
     vql = f"""
-    LET params(data) = SELECT name FROM data
+    LET params(data) = SELECT {parameter_projection} FROM data
     SELECT name, description, params(data=parameters) AS parameters
     FROM artifact_definitions()
-    WHERE type =~ 'client' AND name =~ '{name_regex}'
+    WHERE type =~ 'client'
+      AND name =~ {vql_literal(scope_regex)}
+      AND name =~ {vql_literal(name_regex or ".")}
+    ORDER BY name
     """
 
     def shorten(desc: str) -> str:
@@ -209,7 +218,11 @@ def _summarize_artifacts(name_regex: str, org_id: str = "") -> list[dict]:
         {
             "name": row["name"],
             "short_description": shorten(row.get("description", "")),
-            "parameters": [param["name"] for param in row.get("parameters", [])],
+            "parameters": (
+                row.get("parameters", [])
+                if include_parameter_details
+                else [param["name"] for param in row.get("parameters", [])]
+            ),
         }
         for row in results
     ]
@@ -2059,30 +2072,74 @@ async def collect_forensic_triage(
     )
 
 @mcp.tool()
-async def list_windows_artifacts(org_id: str = "") -> str:
+async def list_windows_artifacts(
+    org_id: str = "",
+    name_regex: str = ".",
+    include_parameter_details: bool = False,
+) -> str:
     """
-    Finds Availible Windows artifacts. 
+    Finds available Windows artifacts.
 
     Generally paramaters that target filename regexs are more performant in NTFS queries: MFT, USN and can also be used to target top level folders.
     A Path glob is performant, and path regex is useful to specifically filter locations.
+
+    Args:
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
+        name_regex: Regex filter for artifact names.
+        include_parameter_details: Return full parameter metadata instead of names only.
     """
-    return _run_json_tool(_summarize_artifacts, "^windows\\.", org_id)
+    return _run_json_tool(
+        _summarize_artifacts,
+        "^windows\\.",
+        org_id,
+        include_parameter_details,
+        name_regex,
+    )
 
 @mcp.tool()
-async def list_linux_artifacts(org_id: str = "") -> str:
+async def list_linux_artifacts(
+    org_id: str = "",
+    name_regex: str = ".",
+    include_parameter_details: bool = False,
+) -> str:
     """
-    Finds Availible Linux artifacts. 
+    Finds available Linux artifacts.
 
+    Args:
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
+        name_regex: Regex filter for artifact names.
+        include_parameter_details: Return full parameter metadata instead of names only.
     """
-    return _run_json_tool(_summarize_artifacts, "linux\\.", org_id)
+    return _run_json_tool(
+        _summarize_artifacts,
+        "linux\\.",
+        org_id,
+        include_parameter_details,
+        name_regex,
+    )
 
 
 @mcp.tool()
-async def list_macos_artifacts(org_id: str = "") -> str:
+async def list_macos_artifacts(
+    org_id: str = "",
+    name_regex: str = ".",
+    include_parameter_details: bool = False,
+) -> str:
     """
     Finds available macOS artifacts.
+
+    Args:
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
+        name_regex: Regex filter for artifact names.
+        include_parameter_details: Return full parameter metadata instead of names only.
     """
-    return _run_json_tool(_summarize_artifacts, "macos\\.", org_id)
+    return _run_json_tool(
+        _summarize_artifacts,
+        "macos\\.",
+        org_id,
+        include_parameter_details,
+        name_regex,
+    )
 
 
 if __name__ == "__main__":

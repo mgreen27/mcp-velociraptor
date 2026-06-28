@@ -98,12 +98,15 @@ or
 {"ok": false, "error": "message"}
 ```
 
-`collect_artifact` accepts `parameters` as a structured JSON object with scalar
-values or lists of scalar values, for example
+`collect_artifact` and `hunt_across_fleet` accept `parameters` as a structured
+JSON object with scalar values or lists of scalar values, for example
 `{"PathRegex": ".*", "Targets": ["_BasicCollection"]}`. Legacy compatibility
 input can be supplied via `legacy_parameters` with simple scalar assignments or
 list literals such as `PathRegex='.*',Targets=['_BasicCollection']`; raw VQL
 fragments are no longer passed through.
+Parameterized hunts are validated against Velociraptor's compiled collector
+args; if the requested artifact env does not land, the hunt is stopped and the
+tool returns an error.
 `collect_forensic_triage` wraps `Windows.Triage.Targets` with
 `Targets='["_BasicCollection"]'` and a collection timeout of `2400` seconds.
 
@@ -113,6 +116,7 @@ The bridge now exposes the original Windows/Linux triage tools plus expanded
 fleet, Linux, macOS, Windows, YARA, and response helpers:
 
 - Fleet: `list_orgs`, `client_info`, `list_clients`, `hunt_across_fleet`, `get_hunt_results_tool`, `run_vql`.
+- Artifact discovery: `list_windows_artifacts`, `list_linux_artifacts`, and `list_macos_artifacts` accept `name_regex` filters and `include_parameter_details=true` for full live parameter metadata from `artifact_definitions()`.
 - Linux: process, group, mount, network, users, crontab, services, SSH keys/logins, shell history, last login, ARP cache, journal search, file finder, and YARA process scanning.
 - macOS: process, users, network, LaunchAgents/Daemons, login items, shell history, browser history, quarantine events, TCC database, file finder, and artifact discovery.
 - Windows: process, network, scheduled tasks, services, RecentDocs, Shellbags, USB/mount evidence, execution traces, MFT, USN, SRUM, EVTX, PowerShell, autoruns, WMI persistence, RDP, DNS cache, Recycle Bin, browser history, memory/malfind/mutant checks, shadow copies, timestomp checks, and file/YARA hunting with optional hash calculation.
