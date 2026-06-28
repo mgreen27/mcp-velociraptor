@@ -3,6 +3,7 @@
 ### Setup
 ```bash
 .venv/bin/python -m pip install -r requirements.txt
+cp example.env .env
 ollama pull gemma4:e2b
 ```
 
@@ -130,19 +131,25 @@ global IOC correlation, and autonomous scope expansion are not first-class
 features in the current implementation and should not be assumed from these
 examples.
 
-The bridge and smoke script both read `VELOCIRAPTOR_API_CONFIG`. Keep that file
-local and out of version control.
+The bridge, smoke script, and agent load dotenv config automatically without
+overriding variables already supplied by your shell or MCP client. Keep `.env`
+and the referenced `api_client.yaml` local and out of version control. Set
+`VELOCIRAPTOR_ENV_FILE=/path/to/.env` when an MCP client should load a dotenv
+file from somewhere other than the repo root.
 Set `VELOCIRAPTOR_DEBUG_VQL=1` only when you want raw VQL request logging on
 stderr for debugging.
 Set `VELOCIRAPTOR_AGENT_VERBOSE=1` only when you want MCP client connection,
 collection progress, and tool-call diagnostics from the agent runtime without
 using the CLI `-v` flag.
-The agent reads `OLLAMA_MODEL` and defaults to `gemma4:e2b`.
+The agent reads `OLLAMA_MODEL` from the environment or `.env` and defaults to
+`gemma4:e2b`.
 Each `analyze_endpoint()` run resets prior manager chat state, and each analyst
 uses its own isolated MCP session and conversation history.
 For multi-tenant deployments, set `VELOCIRAPTOR_ORG_ID` for the default org, or
 pass `org_id` directly to MCP tools such as `client_info`, `windows_pslist`,
 `collect_artifact`, and `get_collection_results`.
+Set `ENABLE_DANGEROUS_TOOLS=true` only when you explicitly want to enable raw
+VQL, quarantine, and remote process-kill tools.
 
 The MCP bridge returns JSON text envelopes in the form
 `{"ok": true, "data": ...}` or `{"ok": false, "error": "..."}`. Consumers
@@ -156,3 +163,7 @@ assignments or list literals like `Targets=['_BasicCollection']`; raw VQL
 fragments are rejected.
 The `collect_forensic_triage` helper wraps `Windows.Triage.Targets` with
 `Targets='["_BasicCollection"]'` and a collection timeout of `2400` seconds.
+The MCP server also exposes expanded fleet, Linux, macOS, Windows, YARA, and
+response helpers. The current agent workflow remains Windows-first; Linux and
+macOS tools are available to direct MCP clients but are not yet fully modeled as
+parallel analyst roles.

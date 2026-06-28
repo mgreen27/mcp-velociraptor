@@ -14,12 +14,22 @@ logging.getLogger("mcp").setLevel(logging.WARNING)
 
 mcp = FastMCP("velociraptor-mcp")
 
-# Resolve the API client config from VELOCIRAPTOR_API_CONFIG, ./api_client.yaml,
-# or ~/.config/api_client.yaml.
+# velociraptor_api loads repo-local .env before resolving VELOCIRAPTOR_API_CONFIG,
+# ./api_client.yaml, or ~/.config/api_client.yaml.
 init_stub(os.environ.get("VELOCIRAPTOR_API_CONFIG"))
 api_list_orgs = list_orgs
 
 ArtifactParameters = dict[str, ParameterValue]
+ENABLE_DANGEROUS_TOOLS = os.environ.get("ENABLE_DANGEROUS_TOOLS", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+DANGEROUS_TOOLS_WARNING = (
+    "This tool is disabled by default. Set ENABLE_DANGEROUS_TOOLS=true "
+    "only when you accept the endpoint impact risk."
+)
 
 
 def _json_success(data) -> str:
@@ -204,6 +214,17 @@ def _summarize_artifacts(name_regex: str, org_id: str = "") -> list[dict]:
         for row in results
     ]
 
+
+def _run_dangerous_collection(
+    client_id: str,
+    artifact: str,
+    parameters: ArtifactParameters | None = None,
+    org_id: str = "",
+) -> str:
+    if not ENABLE_DANGEROUS_TOOLS:
+        return _json_error(DANGEROUS_TOOLS_WARNING)
+    return _start_collection_tool(client_id, artifact, parameters, org_id=org_id)
+
 @mcp.tool()
 def list_orgs() -> str:
     """
@@ -247,6 +268,94 @@ def client_info(
         return _json_error(f"Client not found: {hostname}")
 
     return _json_success(result)
+
+
+@mcp.tool()
+def list_clients(
+    search: str = ".",
+    os_filter: str = ".",
+    limit: int = 100,
+    org_id: str = "",
+) -> str:
+    """
+    List endpoints registered with Velociraptor.
+
+    Args:
+        search: Regex for hostname, FQDN, or client_id.
+        os_filter: Regex for OS type such as windows, linux, or darwin.
+        limit: Maximum rows to return.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
+    """
+    return _run_json_tool(list_all_clients, search, os_filter, limit, org_id)
+
+
+@mcp.tool()
+async def hunt_across_fleet(
+    artifact: str,
+    org_id: str = "",
+    parameters: ArtifactParameters | None = None,
+    legacy_parameters: str = "",
+    description: str = "",
+    os_filter: str = "",
+) -> str:
+    """
+    Start a Velociraptor hunt across multiple endpoints and return hunt metadata.
+
+    Args:
+        artifact: Artifact to collect.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
+        parameters: Structured artifact parameters.
+        legacy_parameters: Backward-compatible key=value parameter string.
+        description: Human-readable hunt description.
+        os_filter: Optional Velociraptor OS filter.
+    """
+    if parameters is not None and legacy_parameters.strip():
+        return _json_error(
+            "Provide either 'parameters' or 'legacy_parameters', not both."
+        )
+    try:
+        parsed_parameters = parameters
+        if legacy_parameters.strip():
+            parsed_parameters = _parse_collection_parameters(legacy_parameters)
+        elif parameters is not None:
+            parsed_parameters = {
+                key: normalize_parameter_value(value)
+                for key, value in parameters.items()
+            }
+        result = start_hunt(
+            artifact,
+            parsed_parameters,
+            description,
+            os_filter,
+            org_id,
+        )
+    except Exception as exc:
+        return _json_error(str(exc))
+    return _json_success(result[0] if result else {})
+
+
+@mcp.tool()
+async def get_hunt_results_tool(
+    hunt_id: str,
+    artifact: str,
+    org_id: str = "",
+    fields: str = "*",
+    limit: int = 500,
+) -> str:
+    """
+    Retrieve rows from a completed Velociraptor hunt.
+    """
+    return _run_json_tool(get_hunt_results, hunt_id, artifact, fields, limit, org_id)
+
+
+@mcp.tool()
+def run_vql(query: str, org_id: str = "") -> str:
+    """
+    Run arbitrary VQL. Disabled unless ENABLE_DANGEROUS_TOOLS=true.
+    """
+    if not ENABLE_DANGEROUS_TOOLS:
+        return _json_error(DANGEROUS_TOOLS_WARNING)
+    return _run_json_tool(run_vql_query, query, org_id)
 
 @mcp.tool()
 async def linux_pslist(
@@ -396,6 +505,374 @@ async def linux_users(
     parameters = None  # No parameters for this artifact
 
     return _run_collection_tool(client_id, artifact, parameters, Fields, result_scope, org_id)
+
+
+@mcp.tool()
+async def linux_crontab(
+    client_id: str,
+    org_id: str = "",
+    Fields: str = "*",
+) -> str:
+    """
+    Collect Linux crontab entries for persistence review.
+    """
+    return _run_collection_tool(client_id, "Linux.Sys.Crontab", None, Fields, "", org_id)
+
+
+@mcp.tool()
+async def linux_services(
+    client_id: str,
+    org_id: str = "",
+    Fields: str = "*",
+) -> str:
+    """
+    Collect Linux systemd service definitions and state.
+    """
+    return _run_collection_tool(client_id, "Linux.Sys.Services", None, Fields, "", org_id)
+
+
+@mcp.tool()
+async def linux_ssh_authorized_keys(
+    client_id: str,
+    org_id: str = "",
+    Fields: str = "*",
+) -> str:
+    """
+    Collect Linux authorized_keys files to identify SSH backdoors.
+    """
+    return _run_collection_tool(
+        client_id,
+        "Linux.Sys.SSHAuthorizedKeys",
+        None,
+        Fields,
+        "",
+        org_id,
+    )
+
+
+@mcp.tool()
+async def linux_bash_history(
+    client_id: str,
+    org_id: str = "",
+    Fields: str = "*",
+) -> str:
+    """
+    Collect Linux shell history from user home directories.
+    """
+    return _run_collection_tool(client_id, "Linux.Sys.BashHistory", None, Fields, "", org_id)
+
+
+@mcp.tool()
+async def linux_ssh_logins(
+    client_id: str,
+    org_id: str = "",
+    Fields: str = "*",
+) -> str:
+    """
+    Parse Linux SSH authentication events from syslog/auth logs.
+    """
+    return _run_collection_tool(client_id, "Linux.Syslog.SSHLogin", None, Fields, "", org_id)
+
+
+@mcp.tool()
+async def linux_last_user_login(
+    client_id: str,
+    org_id: str = "",
+    Fields: str = "*",
+) -> str:
+    """
+    Parse Linux utmp/wtmp login history.
+    """
+    return _run_collection_tool(
+        client_id,
+        "Linux.Sys.LastUserLogin",
+        None,
+        Fields,
+        "",
+        org_id,
+    )
+
+
+@mcp.tool()
+async def linux_arp_cache(
+    client_id: str,
+    org_id: str = "",
+    Fields: str = "*",
+) -> str:
+    """
+    Dump Linux ARP cache entries.
+    """
+    return _run_collection_tool(client_id, "Linux.Network.ArpCache", None, Fields, "", org_id)
+
+
+@mcp.tool()
+async def linux_journal_logs(
+    client_id: str,
+    org_id: str = "",
+    SearchRegex: str = ".",
+    DateAfter: str = "",
+    DateBefore: str = "",
+    Fields: str = "*",
+) -> str:
+    """
+    Search Linux systemd journal logs.
+    """
+    parameters = {
+        "SearchRegex": SearchRegex,
+        "DateAfter": DateAfter,
+        "DateBefore": DateBefore,
+    }
+    return _run_collection_tool(
+        client_id,
+        "Linux.Forensics.Journal",
+        parameters,
+        Fields,
+        "",
+        org_id,
+    )
+
+
+@mcp.tool()
+async def linux_file_finder(
+    client_id: str,
+    org_id: str = "",
+    SearchFilesGlob: str = "/**",
+    SearchGlob: str = "",
+    Upload_File: bool = False,
+    YaraRule: str = "",
+    Hash: str = "",
+    HashRegex: str = "",
+    Calculate_Hash: bool = False,
+    MoreRecentThan: str = "",
+    ModifiedBefore: str = "",
+    ExcludePathRegex: str = "",
+    LocalFilesystemOnly: bool = False,
+    OneFilesystem: bool = False,
+    DoNotFollowSymlinks: bool = False,
+    Fields: str = "*",
+) -> str:
+    """
+    Search Linux files by glob or YARA rule using documented FileFinder params.
+    """
+    if Hash or HashRegex:
+        Calculate_Hash = True
+    if SearchGlob:
+        SearchFilesGlob = SearchGlob
+    parameters = {
+        "SearchFilesGlob": SearchFilesGlob,
+        "Upload_File": Upload_File,
+        "YaraRule": YaraRule,
+        "Calculate_Hash": Calculate_Hash,
+        "MoreRecentThan": MoreRecentThan,
+        "ModifiedBefore": ModifiedBefore,
+        "ExcludePathRegex": ExcludePathRegex,
+        "LocalFilesystemOnly": LocalFilesystemOnly,
+        "OneFilesystem": OneFilesystem,
+        "DoNotFollowSymlinks": DoNotFollowSymlinks,
+    }
+    return _run_collection_tool(
+        client_id,
+        "Linux.Search.FileFinder",
+        parameters,
+        Fields,
+        "",
+        org_id,
+    )
+
+
+@mcp.tool()
+async def macos_pslist(
+    client_id: str,
+    org_id: str = "",
+    ProcessRegex: str = ".",
+    Fields: str = "*",
+) -> str:
+    """
+    List running processes on a macOS host.
+    """
+    return _run_collection_tool(
+        client_id,
+        "MacOS.Sys.Pslist",
+        {"ProcessRegex": ProcessRegex},
+        Fields,
+        "",
+        org_id,
+    )
+
+
+@mcp.tool()
+async def macos_users(
+    client_id: str,
+    org_id: str = "",
+    Fields: str = "*",
+) -> str:
+    """
+    List local user accounts on a macOS host.
+    """
+    return _run_collection_tool(client_id, "MacOS.Sys.Users", None, Fields, "", org_id)
+
+
+@mcp.tool()
+async def macos_netstat(
+    client_id: str,
+    org_id: str = "",
+    Fields: str = "*",
+) -> str:
+    """
+    List network connections on a macOS host.
+    """
+    return _run_collection_tool(client_id, "MacOS.Network.Netstat", None, Fields, "", org_id)
+
+
+@mcp.tool()
+async def macos_launch_agents(
+    client_id: str,
+    org_id: str = "",
+    Fields: str = "*",
+) -> str:
+    """
+    List macOS LaunchAgents and LaunchDaemons.
+    """
+    return _run_collection_tool(
+        client_id,
+        "MacOS.Sys.LaunchAgents",
+        None,
+        Fields,
+        "",
+        org_id,
+    )
+
+
+@mcp.tool()
+async def macos_login_items(
+    client_id: str,
+    org_id: str = "",
+    Fields: str = "*",
+) -> str:
+    """
+    List macOS login items.
+    """
+    return _run_collection_tool(client_id, "MacOS.Sys.LoginItems", None, Fields, "", org_id)
+
+
+@mcp.tool()
+async def macos_bash_history(
+    client_id: str,
+    org_id: str = "",
+    Fields: str = "*",
+) -> str:
+    """
+    Collect macOS bash and zsh history.
+    """
+    return _run_collection_tool(client_id, "MacOS.Sys.BashHistory", None, Fields, "", org_id)
+
+
+@mcp.tool()
+async def macos_browser_history(
+    client_id: str,
+    org_id: str = "",
+    URLRegex: str = ".",
+    historyGlobs: str = "",
+    urlSQLQuery: str = "",
+    userRegex: str = ".",
+    Fields: str = "*",
+) -> str:
+    """
+    Collect macOS browser history from supported browsers.
+    """
+    if URLRegex != ".":
+        return _json_error(
+            "MacOS.Applications.Chrome.History does not expose URLRegex; "
+            "custom filtering requires urlSQLQuery."
+        )
+    parameters = {
+        "historyGlobs": historyGlobs,
+        "urlSQLQuery": urlSQLQuery,
+        "userRegex": userRegex,
+    }
+    return _run_collection_tool(
+        client_id,
+        "MacOS.Applications.Chrome.History",
+        parameters,
+        Fields,
+        "",
+        org_id,
+    )
+
+
+@mcp.tool()
+async def macos_quarantine_events(
+    client_id: str,
+    org_id: str = "",
+    Fields: str = "*",
+) -> str:
+    """
+    Parse macOS quarantine events for downloaded files.
+    """
+    return _run_collection_tool(
+        client_id,
+        "MacOS.Forensics.Quarantine",
+        None,
+        Fields,
+        "",
+        org_id,
+    )
+
+
+@mcp.tool()
+async def macos_tcc_database(
+    client_id: str,
+    org_id: str = "",
+    Fields: str = "*",
+) -> str:
+    """
+    Parse the macOS TCC privacy permission database.
+    """
+    return _run_collection_tool(client_id, "MacOS.System.TCC", None, Fields, "", org_id)
+
+
+@mcp.tool()
+async def macos_file_finder(
+    client_id: str,
+    org_id: str = "",
+    SearchFilesGlob: str = "/**",
+    SearchGlob: str = "",
+    Upload_File: bool = False,
+    YaraRule: str = "",
+    Hash: str = "",
+    HashRegex: str = "",
+    Fetch_Xattr: bool = False,
+    Calculate_Hash: bool = False,
+    MoreRecentThan: str = "",
+    ModifiedBefore: str = "",
+    DoNotFollowSymlinks: bool = False,
+    Fields: str = "*",
+) -> str:
+    """
+    Search macOS files by glob or YARA rule using documented FileFinder params.
+    """
+    if Hash or HashRegex:
+        Calculate_Hash = True
+    if SearchGlob:
+        SearchFilesGlob = SearchGlob
+    parameters = {
+        "SearchFilesGlob": SearchFilesGlob,
+        "Upload_File": Upload_File,
+        "YaraRule": YaraRule,
+        "Fetch_Xattr": Fetch_Xattr,
+        "Calculate_Hash": Calculate_Hash,
+        "MoreRecentThan": MoreRecentThan,
+        "ModifiedBefore": ModifiedBefore,
+        "DoNotFollowSymlinks": DoNotFollowSymlinks,
+    }
+    return _run_collection_tool(
+        client_id,
+        "MacOS.Search.FileFinder",
+        parameters,
+        Fields,
+        "",
+        org_id,
+    )
 
 @mcp.tool()
 async def windows_pslist(
@@ -649,6 +1126,129 @@ async def windows_mountpoints2(
     return _run_collection_tool(client_id, artifact, parameters, Fields, result_scope, org_id)
 
 
+@mcp.tool()
+async def windows_event_log_cleared(
+    client_id: str,
+    org_id: str = "",
+    DateAfter: str = "",
+    DateBefore: str = "",
+    Fields: str = "EventTime,Computer,Channel,EventID,EventData,Message",
+) -> str:
+    """
+    Detect Windows event log clearing events.
+    """
+    parameters = {
+        "ChannelRegex": "Security|System",
+        "IdRegex": "104|1102",
+        "DateAfter": DateAfter,
+        "DateBefore": DateBefore,
+    }
+    return _run_collection_tool(
+        client_id,
+        "Windows.EventLogs.EvtxHunter",
+        parameters,
+        Fields,
+        "",
+        org_id,
+    )
+
+
+@mcp.tool()
+async def windows_timestomp(
+    client_id: str,
+    org_id: str = "",
+    DateAfter: str = "",
+    DateBefore: str = "",
+    Fields: str = "*",
+) -> str:
+    """
+    Detect NTFS timestamp anomalies that may indicate timestomping.
+    """
+    parameters = {
+        "DateAfter": DateAfter,
+        "DateBefore": DateBefore,
+    }
+    return _run_collection_tool(
+        client_id,
+        "Windows.NTFS.Timestomp",
+        parameters,
+        Fields,
+        "",
+        org_id,
+    )
+
+
+@mcp.tool()
+async def windows_shadow_copies(
+    client_id: str,
+    org_id: str = "",
+    Fields: str = "*",
+) -> str:
+    """
+    Enumerate Windows Volume Shadow Copies.
+    """
+    parameters = {"WMIQuery": "SELECT * FROM Win32_ShadowCopy"}
+    return _run_collection_tool(
+        client_id,
+        "Windows.System.WMIQuery",
+        parameters,
+        Fields,
+        "",
+        org_id,
+    )
+
+
+@mcp.tool()
+async def windows_malfind(
+    client_id: str,
+    org_id: str = "",
+    ProcessRegex: str = ".",
+    PidRegex: str = ".",
+    Fields: str = "*",
+) -> str:
+    """
+    Detect suspicious unbacked Windows process memory regions.
+    """
+    parameters = {"ProcessRegex": ProcessRegex, "PidRegex": PidRegex}
+    return _run_collection_tool(
+        client_id,
+        "Windows.Detection.Malfind",
+        parameters,
+        Fields,
+        "",
+        org_id,
+    )
+
+
+@mcp.tool()
+async def windows_mutants(
+    client_id: str,
+    org_id: str = "",
+    MutantRegex: str = ".",
+    MutantNameRegex: str = "",
+    ProcessRegex: str = ".",
+    MutantWhitelistRegex: str = "",
+    Fields: str = "*",
+) -> str:
+    """
+    Enumerate Windows mutants/mutexes for malware hunting.
+    """
+    if not MutantNameRegex:
+        MutantNameRegex = MutantRegex
+    return _run_collection_tool(
+        client_id,
+        "Windows.Detection.Mutants",
+        {
+            "processRegex": ProcessRegex,
+            "MutantNameRegex": MutantNameRegex,
+            "MutantWhitelistRegex": MutantWhitelistRegex,
+        },
+        Fields,
+        "",
+        org_id,
+    )
+
+
 ##
 ## Evidence of execution
 @mcp.tool()
@@ -797,14 +1397,294 @@ async def windows_execution_prefetch(
 
 
 @mcp.tool()
-async def windows_ntfs_mft(
+async def windows_ntfs_mft_search(
     client_id: str,
     org_id: str = "",
     MFTDrive: str = "C:",
     PathRegex: str = ".",
+    FileRegex: str = ".",
+    DateAfter: str = "",
+    DateBefore: str = "",
+    Fields: str = "*",
+) -> str:
+    """
+    Search the Windows MFT by filename regex.
+    """
+    parameters = {
+        "MFTDrive": MFTDrive,
+        "FileRegex": FileRegex,
+        "PathRegex": PathRegex,
+        "DateAfter": DateAfter,
+        "DateBefore": DateBefore,
+    }
+    return _run_collection_tool(
+        client_id,
+        "Windows.NTFS.MFT",
+        parameters,
+        Fields,
+        "",
+        org_id,
+    )
+
+
+@mcp.tool()
+async def windows_event_logs(
+    client_id: str,
+    org_id: str = "",
+    EvtxGlob: str = "%SystemRoot%\\System32\\winevt\\Logs\\*.evtx",
+    IocRegex: str = ".",
+    SearchRegex: str = "",
+    WhitelistRegex: str = "",
+    PathRegex: str = ".",
+    ChannelRegex: str = ".",
+    ProviderRegex: str = ".",
+    IdRegex: str = ".",
+    EventIDRegex: str = "",
+    VSSAnalysisAge: int = 0,
+    SearchVSS: bool = False,
+    DateAfter: str = "",
+    DateBefore: str = "",
+    Fields: str = "EventTime,Computer,Channel,Provider,EventID,EventData,Message",
+) -> str:
+    """
+    Search Windows EVTX logs by channel, event ID, and date range.
+    """
+    if SearchRegex:
+        IocRegex = SearchRegex
+    if EventIDRegex:
+        IdRegex = EventIDRegex
+    if SearchVSS and not VSSAnalysisAge:
+        VSSAnalysisAge = 30
+    parameters = {
+        "EvtxGlob": EvtxGlob,
+        "IocRegex": IocRegex,
+        "WhitelistRegex": WhitelistRegex,
+        "PathRegex": PathRegex,
+        "ChannelRegex": ChannelRegex,
+        "ProviderRegex": ProviderRegex,
+        "IdRegex": IdRegex,
+        "VSSAnalysisAge": VSSAnalysisAge,
+        "DateAfter": DateAfter,
+        "DateBefore": DateBefore,
+    }
+    return _run_collection_tool(
+        client_id,
+        "Windows.EventLogs.EvtxHunter",
+        parameters,
+        Fields,
+        "",
+        org_id,
+    )
+
+
+@mcp.tool()
+async def windows_logon_events(
+    client_id: str,
+    org_id: str = "",
+    Fields: str = "*",
+) -> str:
+    """
+    Collect Windows logon session events.
+    """
+    return _run_collection_tool(
+        client_id,
+        "Windows.EventLogs.LogonSessions",
+        None,
+        Fields,
+        "",
+        org_id,
+    )
+
+
+@mcp.tool()
+async def windows_powershell_scriptblock(
+    client_id: str,
+    org_id: str = "",
+    SearchRegex: str = ".",
+    DateAfter: str = "",
+    DateBefore: str = "",
+    Fields: str = "EventTime,Computer,EventID,EventData.ScriptBlockText,EventData.Path",
+) -> str:
+    """
+    Search PowerShell script block logging events.
+    """
+    parameters = {
+        "ChannelRegex": "Microsoft-Windows-PowerShell/Operational",
+        "IdRegex": "4104",
+        "IocRegex": SearchRegex,
+        "DateAfter": DateAfter,
+        "DateBefore": DateBefore,
+    }
+    return _run_collection_tool(
+        client_id,
+        "Windows.EventLogs.EvtxHunter",
+        parameters,
+        Fields,
+        "",
+        org_id,
+    )
+
+
+@mcp.tool()
+async def windows_powershell_history(
+    client_id: str,
+    org_id: str = "",
+    SearchRegex: str = ".",
+    SearchStrings: str = "",
+    StringWhiteList: str = "",
+    UserRegex: str = ".",
+    UploadFiles: bool = False,
+    Fields: str = "*",
+) -> str:
+    """
+    Collect PowerShell PSReadLine console history.
+    """
+    if SearchRegex != "." and not SearchStrings:
+        SearchStrings = SearchRegex
+    parameters = {
+        "SearchStrings": SearchStrings,
+        "StringWhiteList": StringWhiteList,
+        "UserRegex": UserRegex,
+        "UploadFiles": UploadFiles,
+    }
+    return _run_collection_tool(
+        client_id,
+        "Windows.System.Powershell.PSReadline",
+        parameters,
+        Fields,
+        "",
+        org_id,
+    )
+
+
+@mcp.tool()
+async def windows_autoruns(
+    client_id: str,
+    org_id: str = "",
+    Fields: str = "*",
+) -> str:
+    """
+    Collect Windows autorun/startup extension points.
+    """
+    return _run_collection_tool(client_id, "Windows.Sys.StartupItems", None, Fields, "", org_id)
+
+
+@mcp.tool()
+async def windows_wmi_persistence(
+    client_id: str,
+    org_id: str = "",
+    Fields: str = "*",
+) -> str:
+    """
+    Detect WMI permanent event subscription persistence.
+    """
+    return _run_collection_tool(
+        client_id,
+        "Windows.Persistence.PermanentWMIEvents",
+        None,
+        Fields,
+        "",
+        org_id,
+    )
+
+
+@mcp.tool()
+async def windows_rdp_sessions(
+    client_id: str,
+    org_id: str = "",
+    Fields: str = "*",
+) -> str:
+    """
+    Collect Windows RDP authentication/session events.
+    """
+    return _run_collection_tool(client_id, "Windows.EventLogs.RDPAuth", None, Fields, "", org_id)
+
+
+@mcp.tool()
+async def windows_dns_cache(
+    client_id: str,
+    org_id: str = "",
+    Fields: str = "*",
+) -> str:
+    """
+    Dump the Windows DNS client cache.
+    """
+    return _run_collection_tool(client_id, "Windows.System.DNSCache", None, Fields, "", org_id)
+
+
+@mcp.tool()
+async def windows_hash_search(
+    client_id: str,
+    org_id: str = "",
+    Glob: str = "C:/**",
+    SearchFilesGlob: str = "",
+    SearchGlob: str = "",
+    Upload_File: bool = False,
+    YaraRule: str = "",
+    Hash: str = "",
+    HashRegex: str = "",
+    Calculate_Hash: bool = False,
+    MoreRecentThan: str = "",
+    ModifiedBefore: str = "",
+    VSS_MAX_AGE_DAYS: int = 0,
+    UPLOAD_IS_RESUMABLE: bool = True,
+    Fields: str = "*",
+) -> str:
+    """
+    Search Windows files by glob or YARA rule using documented FileFinder params.
+    """
+    if SearchGlob:
+        Glob = SearchGlob
+    elif SearchFilesGlob:
+        Glob = SearchFilesGlob
+    if Hash or HashRegex:
+        Calculate_Hash = True
+    parameters = {
+        "Glob": Glob,
+        "Upload_File": Upload_File,
+        "YaraRule": YaraRule,
+        "Calculate_Hash": Calculate_Hash,
+        "MoreRecentThan": MoreRecentThan,
+        "ModifiedBefore": ModifiedBefore,
+        "VSS_MAX_AGE_DAYS": VSS_MAX_AGE_DAYS,
+        "UPLOAD_IS_RESUMABLE": UPLOAD_IS_RESUMABLE,
+    }
+    return _run_collection_tool(
+        client_id,
+        "Windows.Search.FileFinder",
+        parameters,
+        Fields,
+        "",
+        org_id,
+    )
+
+
+@mcp.tool()
+async def windows_recycle_bin(
+    client_id: str,
+    org_id: str = "",
+    Fields: str = "*",
+) -> str:
+    """
+    Parse Windows Recycle Bin metadata.
+    """
+    return _run_collection_tool(client_id, "Windows.Forensics.RecycleBin", None, Fields, "", org_id)
+
+
+@mcp.tool()
+async def windows_ntfs_mft(
+    client_id: str,
+    org_id: str = "",
+    MFTDrive: str = "C:",
+    Device: str = "",
+    MFTPath: str = "",
+    Accessor: str = "auto",
+    AllNtfs: bool = False,
+    PathRegex: str = ".",
     FileRegex: str = "^velociraptor\\.exe$",
     DateAfter: str = "",
     DateBefore: str = "",
+    SizeMax: int = 0,
     Fields: str = "*"
 ) -> str:
     """
@@ -825,15 +1705,246 @@ async def windows_ntfs_mft(
     """
     artifact = "Windows.NTFS.MFT"
     result_scope = ""
+    if Device:
+        MFTDrive = Device
     parameters = {
         "MFTDrive": MFTDrive,
+        "MFTPath": MFTPath,
+        "Accessor": Accessor,
+        "AllNtfs": AllNtfs,
         "PathRegex": PathRegex,
         "FileRegex": FileRegex,
         "DateAfter": DateAfter,
         "DateBefore": DateBefore,
+        "SizeMax": SizeMax,
     }
 
     return _run_collection_tool(client_id, artifact, parameters, Fields, result_scope, org_id)
+
+
+@mcp.tool()
+async def windows_usn_journal(
+    client_id: str,
+    org_id: str = "",
+    DriveLetter: str = "C:",
+    Device: str = "",
+    Accessor: str = "ntfs",
+    MFTFile: str = "",
+    USNFile: str = "",
+    AllDrives: bool = False,
+    FileNameRegex: str = ".",
+    PathRegex: str = ".",
+    MFT_ID_Regex: str = ".",
+    Parent_MFT_ID_Regex: str = ".",
+    DateAfter: str = "",
+    DateBefore: str = "",
+    FastPaths: bool = True,
+    Fields: str = "Usn,Timestamp,Filename,FullPath,Reason,FileAttributes,SourceInfo",
+) -> str:
+    """
+    Parse the Windows NTFS USN change journal.
+    """
+    if not Device:
+        Device = DriveLetter
+    parameters = {
+        "Device": Device,
+        "MFTFile": MFTFile,
+        "USNFile": USNFile,
+        "Accessor": Accessor,
+        "AllDrives": AllDrives,
+        "FileNameRegex": FileNameRegex,
+        "PathRegex": PathRegex,
+        "MFT_ID_Regex": MFT_ID_Regex,
+        "Parent_MFT_ID_Regex": Parent_MFT_ID_Regex,
+        "DateAfter": DateAfter,
+        "DateBefore": DateBefore,
+        "FastPaths": FastPaths,
+    }
+    return _run_collection_tool(
+        client_id,
+        "Windows.Forensics.Usn",
+        parameters,
+        Fields,
+        "",
+        org_id,
+    )
+
+
+@mcp.tool()
+async def windows_srum(
+    client_id: str,
+    org_id: str = "",
+    Fields: str = "*",
+) -> str:
+    """
+    Parse Windows SRUM resource usage data.
+    """
+    return _run_collection_tool(client_id, "Windows.Forensics.SRUM", None, Fields, "", org_id)
+
+
+@mcp.tool()
+async def windows_browser_history(
+    client_id: str,
+    org_id: str = "",
+    URLRegex: str = ".",
+    historyGlobs: str = "",
+    urlSQLQuery: str = "",
+    userRegex: str = ".",
+    Fields: str = "URL,Title,LastVisitTime,VisitCount,TypedCount,BrowserType,User",
+) -> str:
+    """
+    Collect Windows Chromium-family browser history.
+    """
+    parameters = {
+        "historyGlobs": historyGlobs,
+        "urlSQLQuery": urlSQLQuery,
+        "userRegex": userRegex,
+        "URLRegex": URLRegex,
+    }
+    return _run_collection_tool(
+        client_id,
+        "Windows.Applications.Chrome.History",
+        parameters,
+        Fields,
+        "",
+        org_id,
+    )
+
+
+@mcp.tool()
+async def yara_scan_files(
+    client_id: str,
+    YaraRule: str,
+    org_id: str = "",
+    FileNameRegex: str = ".",
+    PathRegex: str = ".",
+    DriveLetter: str = "C:",
+    Fields: str = "*",
+) -> str:
+    """
+    Scan Windows files with an inline YARA rule using raw NTFS access.
+    """
+    parameters = {
+        "YaraRule": YaraRule,
+        "FileNameRegex": FileNameRegex,
+        "PathRegex": PathRegex,
+        "DriveLetter": DriveLetter,
+    }
+    return _run_collection_tool(
+        client_id,
+        "Windows.Detection.Yara.NTFS",
+        parameters,
+        Fields,
+        "",
+        org_id,
+    )
+
+
+@mcp.tool()
+async def yara_scan_process(
+    client_id: str,
+    YaraRule: str,
+    org_id: str = "",
+    ProcessRegex: str = ".",
+    PidRegex: str = ".",
+    Fields: str = "*",
+) -> str:
+    """
+    Scan Windows process memory with an inline YARA rule.
+    """
+    parameters = {
+        "YaraRule": YaraRule,
+        "ProcessRegex": ProcessRegex,
+        "PidRegex": PidRegex,
+    }
+    return _run_collection_tool(
+        client_id,
+        "Windows.Detection.Yara.Process",
+        parameters,
+        Fields,
+        "",
+        org_id,
+    )
+
+
+@mcp.tool()
+async def linux_yara_scan(
+    client_id: str,
+    YaraRule: str,
+    org_id: str = "",
+    ProcessRegex: str = ".",
+    PidRegex: str = ".",
+    Fields: str = "*",
+) -> str:
+    """
+    Scan Linux process memory with an inline YARA rule.
+    """
+    parameters = {
+        "YaraRule": YaraRule,
+        "ProcessRegex": ProcessRegex,
+        "PidRegex": PidRegex,
+    }
+    return _run_collection_tool(
+        client_id,
+        "Linux.Detection.Yara.Process",
+        parameters,
+        Fields,
+        "",
+        org_id,
+    )
+
+
+@mcp.tool()
+async def quarantine_host(client_id: str, org_id: str = "") -> str:
+    """
+    Quarantine a Windows host. Disabled unless ENABLE_DANGEROUS_TOOLS=true.
+    """
+    return _run_dangerous_collection(
+        client_id,
+        "Windows.Remediation.Quarantine",
+        {"MessageBox": "Host quarantined by MCP automation."},
+        org_id,
+    )
+
+
+@mcp.tool()
+async def unquarantine_host(client_id: str, org_id: str = "") -> str:
+    """
+    Remove a Windows quarantine policy.
+    """
+    return _start_collection_tool(
+        client_id,
+        "Windows.Remediation.Quarantine",
+        {"RemovePolicy": "Y"},
+        org_id=org_id,
+    )
+
+
+@mcp.tool()
+async def kill_process(client_id: str, pid: int, org_id: str = "") -> str:
+    """
+    Kill a remote process by PID. Disabled unless ENABLE_DANGEROUS_TOOLS=true.
+    """
+    return _run_dangerous_collection(
+        client_id,
+        "Generic.Utils.KillProcess",
+        {"Pid": int(pid)},
+        org_id,
+    )
+
+
+@mcp.tool()
+async def collect_file(client_id: str, path: str, org_id: str = "") -> str:
+    """
+    Start a Generic.Collectors.File collection for a path or glob.
+    """
+    collection_spec = json.dumps([{"glob": path}])
+    return _start_collection_tool(
+        client_id,
+        "Generic.Collectors.File",
+        {"collectionSpec": collection_spec},
+        org_id=org_id,
+    )
 
 @mcp.tool()
 async def get_collection_results(
@@ -964,6 +2075,14 @@ async def list_linux_artifacts(org_id: str = "") -> str:
 
     """
     return _run_json_tool(_summarize_artifacts, "linux\\.", org_id)
+
+
+@mcp.tool()
+async def list_macos_artifacts(org_id: str = "") -> str:
+    """
+    Finds available macOS artifacts.
+    """
+    return _run_json_tool(_summarize_artifacts, "macos\\.", org_id)
 
 
 if __name__ == "__main__":

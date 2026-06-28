@@ -4,6 +4,7 @@ pyyaml
 grpcio
 grpcio-tools
 cryptography
+python-dotenv
 
 # MCP (Model Context Protocol) dependencies
 mcp

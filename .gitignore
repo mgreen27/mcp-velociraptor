@@ -5,9 +5,14 @@ agent_poc/__init__.py
 
 # local virtualenv
 .venv/
+.venv
 
-# api cleint config locally
+# local environment and client config
+.env
+.env.*
+!example.env
 api_client.yaml
+api_client*.yaml
 .mcp.json
 
 # local agent outputs

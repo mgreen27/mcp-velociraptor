@@ -8,6 +8,9 @@ from typing import Mapping
 import grpc
 import yaml
 from pyvelociraptor import api_pb2, api_pb2_grpc
+from velociraptor_env import load_environment
+
+load_environment()
 
 stub = None
 DEFAULT_ORG_ID = os.environ.get("VELOCIRAPTOR_ORG_ID", "").strip()
@@ -216,6 +219,78 @@ def find_client_info(hostname: str, org_id: str | None = None, search_all_orgs: 
     if resolved_org_id and "OrgId" not in row:
         row["OrgId"] = resolved_org_id
     return row
+
+
+def list_all_clients(
+    search: str = ".",
+    os_filter: str = ".",
+    limit: int = 100,
+    org_id: str | None = None,
+) -> list[dict]:
+    search_pattern = search or "."
+    os_pattern = os_filter or "."
+    vql = (
+        "SELECT client_id,"
+        "timestamp(epoch=first_seen_at) as FirstSeen,"
+        "timestamp(epoch=last_seen_at) as LastSeen,"
+        "os_info.hostname as Hostname,"
+        "os_info.fqdn as Fqdn,"
+        "os_info.system as OSType,"
+        "os_info.release as OS,"
+        "os_info.machine as Machine,"
+        "agent_information.version as AgentVersion,"
+        "last_ip as LastIP "
+        "FROM clients() "
+        f"WHERE (os_info.hostname =~ {vql_literal(search_pattern)} "
+        f"OR os_info.fqdn =~ {vql_literal(search_pattern)} "
+        f"OR client_id =~ {vql_literal(search_pattern)}) "
+        f"AND os_info.system =~ {vql_literal(os_pattern)} "
+        f"ORDER BY LastSeen DESC LIMIT {int(limit)}"
+    )
+    return run_vql_query(vql, org_id=org_id)
+
+
+def start_hunt(
+    artifact: str,
+    parameters: Mapping[str, ParameterValue] | None = None,
+    description: str = "",
+    os_filter: str = "",
+    org_id: str | None = None,
+) -> list[dict]:
+    normalized_artifact = normalize_artifact_name(artifact)
+    normalized_parameters = normalize_env_dict(parameters)
+    hunt_description = description or f"MCP Hunt: {normalized_artifact}"
+    os_arg = ""
+    if os_filter.strip():
+        os_arg = f", os_name={vql_literal(os_filter.strip())}"
+    vql = (
+        "LET hunt_result <= hunt("
+        f"description={vql_literal(hunt_description)}, "
+        f"artifacts={vql_literal(normalized_artifact)}, "
+        f"env=dict({normalized_parameters})"
+        f"{os_arg}) "
+        "SELECT hunt_id, hunt_description as description, artifacts, state "
+        "FROM foreach(row=hunt_result)"
+    )
+    return run_vql_query(vql, org_id=org_id)
+
+
+def get_hunt_results(
+    hunt_id: str,
+    artifact: str,
+    fields: str = "*",
+    limit: int = 500,
+    org_id: str | None = None,
+) -> list[dict]:
+    normalized_artifact = normalize_artifact_name(artifact)
+    normalized_fields = normalize_fields(fields)
+    vql = (
+        f"SELECT {normalized_fields} "
+        f"FROM hunt_results(hunt_id={vql_literal(hunt_id)}, "
+        f"artifact={vql_literal(normalized_artifact)}) "
+        f"LIMIT {int(limit)}"
+    )
+    return run_vql_query(vql, org_id=org_id)
 
 
 def realtime_collection(

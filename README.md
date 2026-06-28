@@ -23,15 +23,20 @@ Generate an api config file:
 ### 2. Clone mcp-velociraptor repo and test API
 
 - Copy `api_client.yaml` to the repo root, or keep it anywhere local and set `VELOCIRAPTOR_API_CONFIG=/path/to/api_client.yaml`.
+- Copy `example.env` to `.env` for local development, then set `VELOCIRAPTOR_API_CONFIG` to your real `api_client.yaml` path. The bridge, smoke script, and agent load dotenv config automatically without overriding variables already supplied by your shell or MCP client.
 - `api_client.yaml` is gitignored and should not be committed.
-- Run `VELOCIRAPTOR_API_CONFIG=/path/to/api_client.yaml .venv/bin/python test_api.py` to confirm the API works.
-- The MCP bridge reads the same `VELOCIRAPTOR_API_CONFIG` environment variable.
+- Run `.venv/bin/python test_api.py` to confirm the API works when `.env` is configured, or use `VELOCIRAPTOR_API_CONFIG=/path/to/api_client.yaml .venv/bin/python test_api.py` to override it for a single run.
+- The MCP bridge reads the same `VELOCIRAPTOR_API_CONFIG` environment variable after loading dotenv config.
 - For multi-tenant deployments, optionally set `VELOCIRAPTOR_ORG_ID` to choose a default org context.
 - Set `VELOCIRAPTOR_DEBUG_VQL=1` only when you want raw VQL request logging on stderr for debugging.
+- Set `ENABLE_DANGEROUS_TOOLS=true` only when you explicitly want to enable raw VQL, quarantine, and remote process-kill tools.
 
 ### 3. Connect to MCP client of choice
 
-The easiest configuration is to run your venv python directly calling mcp_velociraptor_bridge.
+The easiest configuration is to run your venv python directly calling
+`mcp_velociraptor_bridge.py`. You can either put values directly in the MCP
+client config:
+
 ```json
 {
   "mcpServers": {
@@ -48,6 +53,28 @@ The easiest configuration is to run your venv python directly calling mcp_veloci
   }
 }
 ```
+
+Or point the MCP client at a dotenv file:
+
+```json
+{
+  "mcpServers": {
+    "velociraptor": {
+      "command": "/path/to/venv/bin/python",
+      "env": {
+        "VELOCIRAPTOR_ENV_FILE": "/path/to/mcp-velociraptor/.env"
+      },
+      "args": [
+        "/path/to/mcp_velociraptor_bridge.py"
+      ]
+    }
+  }
+}
+```
+
+Config precedence is: direct environment values from the MCP client or shell,
+then `VELOCIRAPTOR_ENV_FILE` if set, then repo-local `.env`, then fallback
+paths such as `./api_client.yaml` and `~/.config/api_client.yaml`.
 
 The separate agent proof-of-concept now lives under `agent_poc/`. It now
 includes a Windows-first engagement manager that fans out to isolated process,
@@ -80,10 +107,25 @@ fragments are no longer passed through.
 `collect_forensic_triage` wraps `Windows.Triage.Targets` with
 `Targets='["_BasicCollection"]'` and a collection timeout of `2400` seconds.
 
+### 5. Tool Inventory
+
+The bridge now exposes the original Windows/Linux triage tools plus expanded
+fleet, Linux, macOS, Windows, YARA, and response helpers:
+
+Thanks to [@snoe-findley](https://github.com/snoe-findley) for sharing a
+production-hardened fork that inspired several of the expanded cross-platform
+tool wrappers listed below.
+
+- Fleet: `list_orgs`, `client_info`, `list_clients`, `hunt_across_fleet`, `get_hunt_results_tool`, `run_vql`.
+- Linux: process, group, mount, network, users, crontab, services, SSH keys/logins, shell history, last login, ARP cache, journal search, file finder, and YARA process scanning.
+- macOS: process, users, network, LaunchAgents/Daemons, login items, shell history, browser history, quarantine events, TCC database, file finder, and artifact discovery.
+- Windows: process, network, scheduled tasks, services, RecentDocs, Shellbags, USB/mount evidence, execution traces, MFT, USN, SRUM, EVTX, PowerShell, autoruns, WMI persistence, RDP, DNS cache, Recycle Bin, browser history, memory/malfind/mutant checks, shadow copies, timestomp checks, and file/YARA hunting with optional hash calculation.
+- Generic response/collection: `collect_artifact`, `get_collection_results`, `collect_forensic_triage`, `collect_file`, `quarantine_host`, `unquarantine_host`, and `kill_process`.
+
 ![image](https://github.com/user-attachments/assets/3e810f03-ca74-4757-b5dc-89d4e8f8aef6)
 
 
-### 5. Caveats
+### 6. Caveats
 
 Due to the nature of DFIR, results depend on amount of data returned, model use and context window.
 

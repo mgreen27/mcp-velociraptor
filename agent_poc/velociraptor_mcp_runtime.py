@@ -13,6 +13,9 @@ from typing import Optional
 import ollama
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from velociraptor_env import load_environment
+
+load_environment()
 
 logger = logging.getLogger(__name__)
 RUNTIME_VERBOSE = os.environ.get("VELOCIRAPTOR_AGENT_VERBOSE", "").strip().lower() in {
